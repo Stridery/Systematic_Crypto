@@ -9,6 +9,7 @@
 
 -- =========== PART 1: CREATE ALL TABLES ===========
 
+
 CREATE TABLE IF NOT EXISTS dashboard_stats (
     id SERIAL PRIMARY KEY,
     snapshot_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -50,6 +51,21 @@ CREATE TABLE IF NOT EXISTS market_metrics (
     hype_index INTEGER
 );
 
+-- Create price_data table for storing historical cryptocurrency price data
+CREATE TABLE IF NOT EXISTS price_data (
+    id SERIAL PRIMARY KEY,
+    timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+    trading_pair VARCHAR(20) NOT NULL,
+    exchange VARCHAR(50) NOT NULL,
+    open DECIMAL(20, 8) NOT NULL,
+    high DECIMAL(20, 8) NOT NULL,
+    low DECIMAL(20, 8) NOT NULL,
+    close DECIMAL(20, 8) NOT NULL,
+    volume DECIMAL(30, 8) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT price_data_unique UNIQUE (timestamp, trading_pair, exchange)
+);
+
 
 -- =========== PART 2: CLEAR ALL OLD DATA ===========
 
@@ -58,6 +74,7 @@ CREATE TABLE IF NOT EXISTS market_metrics (
 TRUNCATE TABLE dashboard_stats, chain_metrics CASCADE;
 TRUNCATE TABLE equity_curves;
 TRUNCATE TABLE market_metrics;
+TRUNCATE TABLE price_data;
 
 
 -- =========== PART 3: POPULATE ALL TABLES ===========
@@ -120,7 +137,7 @@ INSERT INTO equity_curves (strategy_key, strategy_name, strategy_color, month, e
   ('breakout', 'Breakout Strategy', '#d62728', 'June',        96000.00, NOW()),
   ('breakout', 'Breakout Strategy', '#d62728', 'July',        88000.00, NOW()),
   ('breakout', 'Breakout Strategy', '#d62728', 'August',      89000.00, NOW()),
-  ('breakout', 'Breakout Strategy', '#d62728', 'September',   86000.00, NOW());
+  ('breakout', 'Breakout Strategy', '#d62728', 'September',   86000.00, NOW()),
 ('arbitrage', 'Statistical Arbitrage', '#9467bd', 'January', 100000.00, NOW()),
 ('arbitrage', 'Statistical Arbitrage', '#9467bd', 'February', 102800.00, NOW()),
 ('arbitrage', 'Statistical Arbitrage', '#9467bd', 'March', 104800.00, NOW()),
