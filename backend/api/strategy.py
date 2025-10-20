@@ -125,7 +125,7 @@ async def run_strategy(params: Dict[str, Any] = None):
         base_equity = 100000  # Starting equity
         for i, row in results.iterrows():
             equity = base_equity * row['cumulative_returns']
-            month = row['timestamp'].strftime('%B')
+            month = row['timestamp'].strftime('%Y-%m')
             
             # Ensure equity is a valid float
             equity_value = float(equity) if not pd.isna(equity) else 100000.0

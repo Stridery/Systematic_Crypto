@@ -203,7 +203,7 @@ export function EquityCurveGraph() {
               axisLine={false}
               tickMargin={8}
               minTickGap={32}
-              tickFormatter={(value) => value.slice(0, 3)}
+              tickFormatter={(value) => value}
             />
             <YAxis
               tickLine={false}
