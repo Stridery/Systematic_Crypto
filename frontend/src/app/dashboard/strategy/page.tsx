@@ -13,7 +13,7 @@ import PageContainer from '@/components/layout/page-container';
 
 // Supported exchanges and trading pairs
 const exchanges = ['Binance', 'Coinbase Pro', 'Kraken'];
-const pairs = ['BTC/USDT', 'ETH/USDT'];
+const pairs = ['BTCUSD', 'ETHUSD', 'LTCUSD', 'DOGEUSD'];
 
 // Strategy definitions with parameters and descriptions
 const strategyDefs = [
@@ -22,8 +22,10 @@ const strategyDefs = [
     icon: TrendingUp,
     description: 'Simple moving average crossover strategy for testing.',
     params: [
-      { key: 'short_window', label: 'Short MA Window', default: 10 },
-      { key: 'long_window', label: 'Long MA Window', default: 30 },
+      { key: 'short_min', label: 'Short MA Min', default: 10, range: true },
+      { key: 'short_max', label: 'Short MA Max', default: 15, range: true },
+      { key: 'long_min', label: 'Long MA Min', default: 20, range: true },
+      { key: 'long_max', label: 'Long MA Max', default: 30, range: true },
     ],
   },
   {
@@ -80,6 +82,16 @@ export default function Page() {
     sharpeRatio: string;
   } | null>(null);
 
+  // Best parameters state
+  const [bestParams, setBestParams] = useState<{
+    short_window: number;
+    long_window: number;
+    monthlyReturn: string;
+  } | null>(null);
+
+  // Validation errors
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+
   // Backtest threads
   const [threads, setThreads] = useState(4);
 
@@ -92,53 +104,118 @@ export default function Page() {
       ...prev,
       [strategy]: { ...prev[strategy], [key]: value }
     }));
+    setValidationErrors([]);
+  };
+
+  // Validate parameters
+  const validateParams = (params: Record<string, number>): string[] => {
+    const errors: string[] = [];
+    const short_min = params.short_min || 0;
+    const short_max = params.short_max || 0;
+    const long_min = params.long_min || 0;
+    const long_max = params.long_max || 0;
+
+    // Each range: max >= min
+    if (short_max < short_min) {
+      errors.push('Short MA max must be >= min');
+    }
+    if (long_max < long_min) {
+      errors.push('Long MA max must be >= min');
+    }
+
+    // Long MA min > Short MA min
+    if (long_min <= short_min) {
+      errors.push('Long MA min must be > Short MA min');
+    }
+
+    // Long MA max > Short MA max
+    if (long_max <= short_max) {
+      errors.push('Long MA max must be > Short MA max');
+    }
+
+    return errors;
   };
 
   // Run the selected strategy with current settings
   const run = async (name: string) => {
     const params = configs[name];
+    
+    // Validate parameters
+    const errors = validateParams(params);
+    if (errors.length > 0) {
+      setValidationErrors(errors);
+      return;
+    }
+    setValidationErrors([]);
+    
     const now = new Date().toLocaleTimeString();
     setStatus('running');
     setLogs([`[${now}] 🚀 Running ${name} on ${pair} @ ${exchange}`]);
     setMetrics(null);
+    setBestParams(null);
 
     try {
       // Call backend API to run strategy
+      // Add trading_pair to params
+      const requestParams = {
+        ...params,
+        trading_pair: pair
+      };
+      
       const response = await fetch('http://localhost:8000/api/strategy/run', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(params),
+        body: JSON.stringify(requestParams),
       });
 
       if (!response.ok) {
         throw new Error('Strategy execution failed');
       }
 
-      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ Strategy execution completed`]);
+      const responseData = await response.json();
       
-      // Fetch results
-      const resultsResponse = await fetch('http://localhost:8000/api/strategy/results');
-      if (!resultsResponse.ok) {
-        throw new Error('Failed to fetch strategy results');
+      if (responseData.metrics) {
+        setMetrics({
+          winRate: responseData.metrics.winRate,
+          monthlyReturn: responseData.metrics.monthlyReturn,
+          maxDrawdown: responseData.metrics.maxDrawdown,
+          profitFactor: responseData.metrics.sharpeRatio, // 使用夏普比率替代盈利因子
+          sharpeRatio: responseData.metrics.sharpeRatio,
+        });
+
+        // Set best parameters if available
+        if (responseData.best_params) {
+          setBestParams({
+            short_window: responseData.best_params.short_window,
+            long_window: responseData.best_params.long_window,
+            monthlyReturn: responseData.best_params.monthlyReturn,
+          });
+        }
+        
+        setLogs(prev => [
+          ...prev, 
+          `[${new Date().toLocaleTimeString()}] ✅ Strategy execution completed`,
+          `[${new Date().toLocaleTimeString()}] 📊 Performance Metrics:`,
+          `    Win Rate: ${responseData.metrics.winRate}`,
+          `    Monthly Return: ${responseData.metrics.monthlyReturn}`,
+          `    Max Drawdown: ${responseData.metrics.maxDrawdown}`,
+          `    Sharpe Ratio: ${responseData.metrics.sharpeRatio}`,
+          `    Total Trades: ${responseData.metrics.totalTrades}`,
+          `    Avg Return: ${responseData.metrics.avgReturn}`,
+          `    Volatility: ${responseData.metrics.volatility}`,
+          ...(responseData.best_params ? [
+            ``,
+            `[${new Date().toLocaleTimeString()}] 🏆 Best Parameters Found:`,
+            `    Short MA: ${responseData.best_params.short_window}`,
+            `    Long MA: ${responseData.best_params.long_window}`,
+            `    Monthly Return: ${responseData.best_params.monthlyReturn}`
+          ] : [])
+        ]);
+      } else {
+        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ Strategy execution completed`]);
       }
-
-      const results = await resultsResponse.json();
-      
-      // Calculate metrics from results
-      const lastEquity = results[results.length - 1].equity;
-      const firstEquity = results[0].equity;
-      const totalReturn = ((lastEquity - firstEquity) / firstEquity) * 100;
-      const monthlyReturn = totalReturn / results.length * 30; // Approximate monthly return
-
-      setMetrics({
-        winRate: '0.65',  // Placeholder - would need more data to calculate
-        monthlyReturn: monthlyReturn.toFixed(2),
-        maxDrawdown: '-5.2',  // Placeholder - would need more data to calculate
-        profitFactor: '1.8',  // Placeholder - would need more data to calculate
-        sharpeRatio: '1.4',   // Placeholder - would need more data to calculate
-      });
 
       setStatus('completed');
       setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📊 Results fetched and displayed`]);
@@ -228,6 +305,26 @@ export default function Page() {
                 />
               </div>
             ))}
+            
+            {/* Validation errors */}
+            {validationErrors.length > 0 && (
+              <div className="mt-2 p-2 bg-red-900/20 border border-red-500 rounded">
+                {validationErrors.map((error, i) => (
+                  <p key={i} className="text-red-400 text-sm">{error}</p>
+                ))}
+              </div>
+            )}
+
+            {/* Best params display */}
+            {bestParams && (
+              <div className="mt-4 p-3 bg-green-900/20 border border-green-500 rounded">
+                <h4 className="text-green-400 font-semibold mb-1">🏆 Best Parameters:</h4>
+                <p className="text-white text-sm">Short MA: {bestParams.short_window}</p>
+                <p className="text-white text-sm">Long MA: {bestParams.long_window}</p>
+                <p className="text-green-400 font-semibold">Monthly Return: {bestParams.monthlyReturn}</p>
+              </div>
+            )}
+
             <Button onClick={() => run(active)} variant="secondary" className="mt-4 w-full">
               Run {activeDef.name}
             </Button>
