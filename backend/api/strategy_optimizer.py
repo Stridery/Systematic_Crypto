@@ -67,7 +67,7 @@ def run_grid_search(
     Returns:
         Dictionary containing:
         - all_results: List of all parameter combinations and their metrics
-        - best_result: The best parameter combination based on monthly return
+        - best_result: The best parameter combination based on sharpe ratio
         - best_params: Best parameters dict
         - results: Results DataFrame for the best parameters
     """
@@ -94,6 +94,7 @@ def run_grid_search(
             'win_rate': metrics['win_rate'],
             'max_drawdown': metrics['max_drawdown'],
             'sharpe_ratio': metrics['sharpe_ratio'],
+            'profit_factor': metrics.get('profit_factor', 0.0),
             'total_trades': metrics['total_trades'],
             'avg_return': metrics['avg_return'],
             'volatility': metrics['volatility'],
@@ -103,8 +104,8 @@ def run_grid_search(
     # Print results table
     print_results_table(all_results)
     
-    # Find best parameters based on monthly return
-    best_result = max(all_results, key=lambda x: x['monthly_return'])
+    # Find best parameters based on sharpe ratio (highest sharpe ratio)
+    best_result = max(all_results, key=lambda x: x['sharpe_ratio'])
     
     print(f"\n=== Best Parameters Found ===")
     print(f"Short MA: {best_result['short_window']}")
@@ -122,11 +123,13 @@ def run_grid_search(
     }
     
     # Prepare metrics dict
+    profit_factor_value = best_result.get('profit_factor', 0.0)
     metrics_dict = {
         'annual_return': best_result['monthly_return'] * 12,
         'win_rate': best_result['win_rate'],
         'max_drawdown': best_result['max_drawdown'],
         'sharpe_ratio': best_result['sharpe_ratio'],
+        'profit_factor': profit_factor_value,
         'total_trades': best_result['total_trades'],
         'avg_return': best_result['avg_return'],
         'volatility': best_result['volatility']

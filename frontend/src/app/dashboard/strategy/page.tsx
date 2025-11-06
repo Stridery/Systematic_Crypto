@@ -74,7 +74,16 @@ export default function Page() {
   const [logs, setLogs] = useState<string[]>([]);
 
   // Performance metrics state
-  const [metrics, setMetrics] = useState<{
+  const [trainingMetrics, setTrainingMetrics] = useState<{
+    winRate: string;
+    monthlyReturn: string;
+    maxDrawdown: string;
+    profitFactor: string;
+    sharpeRatio: string;
+  } | null>(null);
+
+  // Validation metrics state
+  const [validationMetrics, setValidationMetrics] = useState<{
     winRate: string;
     monthlyReturn: string;
     maxDrawdown: string;
@@ -98,6 +107,13 @@ export default function Page() {
   // Signal generation state
   const [signalState, setSignalState] = useState<'idle' | 'generating' | 'ready'>('idle');
   const [signalCount, setSignalCount] = useState(0);
+
+  // Period dates state (using string format YYYY-MM-DD for input)
+  const [trainStartDate, setTrainStartDate] = useState<string>('');
+  const [trainEndDate, setTrainEndDate] = useState<string>('');
+  const [validationStartDate, setValidationStartDate] = useState<string>('');
+  const [validationEndDate, setValidationEndDate] = useState<string>('');
+  const [periodValidationErrors, setPeriodValidationErrors] = useState<string[]>([]);
 
   const handleParamChange = (strategy: string, key: string, value: number) => {
     setConfigs(prev => ({
@@ -136,6 +152,123 @@ export default function Page() {
     return errors;
   };
 
+  // Validate period dates
+  const validatePeriods = (): string[] => {
+    const errors: string[] = [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const threeYearsAgo = new Date(today);
+    threeYearsAgo.setFullYear(today.getFullYear() - 3);
+
+    // Validate train period
+    if (trainStartDate && trainEndDate) {
+      const trainStart = new Date(trainStartDate);
+      trainStart.setHours(0, 0, 0, 0);
+      const trainEnd = new Date(trainEndDate);
+      trainEnd.setHours(0, 0, 0, 0);
+
+      // Check if date is valid
+      if (isNaN(trainStart.getTime())) {
+        errors.push('Train period: Invalid start date');
+      }
+      if (isNaN(trainEnd.getTime())) {
+        errors.push('Train period: Invalid end date');
+      }
+
+      if (!isNaN(trainStart.getTime()) && !isNaN(trainEnd.getTime())) {
+        // Check if end date is after start date
+        if (trainEnd.getTime() <= trainStart.getTime()) {
+          errors.push('Train period: End date must be after start date');
+        }
+
+        // Check if dates are within 3 years from today
+        if (trainStart.getTime() < threeYearsAgo.getTime() || trainEnd.getTime() < threeYearsAgo.getTime()) {
+          errors.push('Train period: Dates cannot be more than 3 years in the past');
+        }
+        if (trainStart.getTime() > today.getTime() || trainEnd.getTime() > today.getTime()) {
+          errors.push('Train period: Dates cannot be in the future');
+        }
+      }
+    }
+
+    // Validate validation period
+    if (validationStartDate && validationEndDate) {
+      const valStart = new Date(validationStartDate);
+      valStart.setHours(0, 0, 0, 0);
+      const valEnd = new Date(validationEndDate);
+      valEnd.setHours(0, 0, 0, 0);
+
+      // Check if date is valid
+      if (isNaN(valStart.getTime())) {
+        errors.push('Validation period: Invalid start date');
+      }
+      if (isNaN(valEnd.getTime())) {
+        errors.push('Validation period: Invalid end date');
+      }
+
+      if (!isNaN(valStart.getTime()) && !isNaN(valEnd.getTime())) {
+        // Check if end date is after start date
+        if (valEnd.getTime() <= valStart.getTime()) {
+          errors.push('Validation period: End date must be after start date');
+        }
+
+        // Check if dates are within 3 years from today
+        if (valStart.getTime() < threeYearsAgo.getTime() || valEnd.getTime() < threeYearsAgo.getTime()) {
+          errors.push('Validation period: Dates cannot be more than 3 years in the past');
+        }
+        if (valStart.getTime() > today.getTime() || valEnd.getTime() > today.getTime()) {
+          errors.push('Validation period: Dates cannot be in the future');
+        }
+      }
+    }
+
+    // Check if periods overlap
+    if (trainStartDate && trainEndDate && validationStartDate && validationEndDate) {
+      const trainStart = new Date(trainStartDate);
+      const trainEnd = new Date(trainEndDate);
+      const valStart = new Date(validationStartDate);
+      const valEnd = new Date(validationEndDate);
+
+      if (!isNaN(trainStart.getTime()) && !isNaN(trainEnd.getTime()) && 
+          !isNaN(valStart.getTime()) && !isNaN(valEnd.getTime())) {
+        trainStart.setHours(0, 0, 0, 0);
+        trainEnd.setHours(0, 0, 0, 0);
+        valStart.setHours(0, 0, 0, 0);
+        valEnd.setHours(0, 0, 0, 0);
+
+        // Check overlap: periods overlap if one starts before the other ends
+        const periodsOverlap = 
+          (trainStart.getTime() <= valEnd.getTime() && trainEnd.getTime() >= valStart.getTime());
+        
+        if (periodsOverlap) {
+          errors.push('Train period and Validation period cannot overlap');
+        }
+      }
+    }
+
+    return errors;
+  };
+
+  // Calculate min and max dates for input
+  const getDateConstraints = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const threeYearsAgo = new Date(today);
+    threeYearsAgo.setFullYear(today.getFullYear() - 3);
+    
+    return {
+      min: threeYearsAgo.toISOString().split('T')[0], // Format: YYYY-MM-DD
+      max: today.toISOString().split('T')[0], // Format: YYYY-MM-DD
+    };
+  };
+
+  // Validate periods when dates change
+  React.useEffect(() => {
+    const errors = validatePeriods();
+    setPeriodValidationErrors(errors);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trainStartDate, trainEndDate, validationStartDate, validationEndDate]);
+
   // Run the selected strategy with current settings
   const run = async (name: string) => {
     const params = configs[name];
@@ -148,19 +281,38 @@ export default function Page() {
     }
     setValidationErrors([]);
     
+    // Validate period dates if provided
+    if (trainStartDate || trainEndDate || validationStartDate || validationEndDate) {
+      const periodErrors = validatePeriods();
+      if (periodErrors.length > 0) {
+        setPeriodValidationErrors(periodErrors);
+        return;
+      }
+    }
+    setPeriodValidationErrors([]);
+    
     const now = new Date().toLocaleTimeString();
     setStatus('running');
     setLogs([`[${now}] 🚀 Running ${name} on ${pair} @ ${exchange}`]);
-    setMetrics(null);
+    setTrainingMetrics(null);
+    setValidationMetrics(null);
     setBestParams(null);
 
     try {
       // Call backend API to run strategy
-      // Add trading_pair to params
-      const requestParams = {
+      // Add trading_pair and date parameters to params
+      const requestParams: any = {
         ...params,
         trading_pair: pair
       };
+
+      // Add date parameters if provided
+      if (trainStartDate && trainEndDate && validationStartDate && validationEndDate) {
+        requestParams.train_start_date = trainStartDate;
+        requestParams.train_end_date = trainEndDate;
+        requestParams.validation_start_date = validationStartDate;
+        requestParams.validation_end_date = validationEndDate;
+      }
       
       const response = await fetch('http://localhost:8000/api/strategy/run', {
         method: 'POST',
@@ -176,12 +328,63 @@ export default function Page() {
 
       const responseData = await response.json();
       
-      if (responseData.metrics) {
-        setMetrics({
+      // Handle training-validation mode
+      if (responseData.training_metrics && responseData.validation_metrics) {
+        // Set training metrics
+        setTrainingMetrics({
+          winRate: responseData.training_metrics.winRate,
+          monthlyReturn: responseData.training_metrics.monthlyReturn,
+          maxDrawdown: responseData.training_metrics.maxDrawdown,
+          profitFactor: responseData.training_metrics.profitFactor || responseData.training_metrics.sharpeRatio, // Use profitFactor if available, fallback to sharpeRatio
+          sharpeRatio: responseData.training_metrics.sharpeRatio,
+        });
+
+        // Set validation metrics
+        setValidationMetrics({
+          winRate: responseData.validation_metrics.winRate,
+          monthlyReturn: responseData.validation_metrics.monthlyReturn,
+          maxDrawdown: responseData.validation_metrics.maxDrawdown,
+          profitFactor: responseData.validation_metrics.profitFactor || responseData.validation_metrics.sharpeRatio, // Use profitFactor if available, fallback to sharpeRatio
+          sharpeRatio: responseData.validation_metrics.sharpeRatio,
+        });
+
+        // Set best parameters if available
+        if (responseData.best_params) {
+          setBestParams({
+            short_window: responseData.best_params.short_window,
+            long_window: responseData.best_params.long_window,
+            monthlyReturn: responseData.best_params.monthlyReturn,
+          });
+        }
+        
+        setLogs(prev => [
+          ...prev, 
+          `[${new Date().toLocaleTimeString()}] ✅ Training-validation optimization completed`,
+          `[${new Date().toLocaleTimeString()}] 📊 Training Performance Metrics:`,
+          `    Win Rate: ${responseData.training_metrics.winRate}`,
+          `    Monthly Return: ${responseData.training_metrics.monthlyReturn}`,
+          `    Max Drawdown: ${responseData.training_metrics.maxDrawdown}`,
+          `    Sharpe Ratio: ${responseData.training_metrics.sharpeRatio}`,
+          `[${new Date().toLocaleTimeString()}] 📊 Validation Performance Metrics:`,
+          `    Win Rate: ${responseData.validation_metrics.winRate}`,
+          `    Monthly Return: ${responseData.validation_metrics.monthlyReturn}`,
+          `    Max Drawdown: ${responseData.validation_metrics.maxDrawdown}`,
+          `    Sharpe Ratio: ${responseData.validation_metrics.sharpeRatio}`,
+          ...(responseData.best_params ? [
+            ``,
+            `[${new Date().toLocaleTimeString()}] 🏆 Best Parameters Found (from training):`,
+            `    Short MA: ${responseData.best_params.short_window}`,
+            `    Long MA: ${responseData.best_params.long_window}`,
+            `    Monthly Return: ${responseData.best_params.monthlyReturn}`
+          ] : [])
+        ]);
+      } else if (responseData.metrics) {
+        // Handle legacy mode (backward compatibility)
+        setTrainingMetrics({
           winRate: responseData.metrics.winRate,
           monthlyReturn: responseData.metrics.monthlyReturn,
           maxDrawdown: responseData.metrics.maxDrawdown,
-          profitFactor: responseData.metrics.sharpeRatio, // 使用夏普比率替代盈利因子
+          profitFactor: responseData.metrics.profitFactor || responseData.metrics.sharpeRatio, // Use profitFactor if available, fallback to sharpeRatio
           sharpeRatio: responseData.metrics.sharpeRatio,
         });
 
@@ -222,7 +425,8 @@ export default function Page() {
 
     } catch (error) {
       console.error('Error:', error);
-      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Error: ${error.message}`]);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Error: ${errorMessage}`]);
       setStatus('idle');
     }
   };
@@ -331,26 +535,82 @@ export default function Page() {
           </CardContent>
         </Card>
 
-        {/* Execution Engine */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Code size={20} className="text-white" />
-              <CardTitle className="text-white">Execution Engine</CardTitle>
-            </div>
-            <Badge
-              variant={status === 'running' ? 'outline' : status === 'completed' ? 'default' : 'secondary'}
-              className="capitalize"
-            >
-              {status}
-            </Badge>
+        {/* Period Configuration */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-white">Period Configuration</CardTitle>
           </CardHeader>
-          <CardContent>
-            <ul className="h-48 overflow-auto space-y-2 p-4 bg-gray-800 rounded-lg">
-              {logs.map((l, i) => (
-                <li key={i} className="text-sm text-gray-100">{l}</li>
-              ))}
-            </ul>
+          <CardContent className="space-y-4">
+            {/* Train Period */}
+            <div className="flex flex-col space-y-4">
+              <label className="text-white mb-1">Train Period</label>
+              
+              {/* Train Start Date */}
+              <div className="flex flex-col space-y-2">
+                <label className="text-sm text-gray-300">Start Date</label>
+                <Input
+                  type="date"
+                  value={trainStartDate}
+                  onChange={(e) => setTrainStartDate(e.target.value)}
+                  min={getDateConstraints().min}
+                  max={getDateConstraints().max}
+                  className="bg-gray-800 text-white border-gray-700"
+                />
+              </div>
+
+              {/* Train End Date */}
+              <div className="flex flex-col space-y-2">
+                <label className="text-sm text-gray-300">End Date</label>
+                <Input
+                  type="date"
+                  value={trainEndDate}
+                  onChange={(e) => setTrainEndDate(e.target.value)}
+                  min={getDateConstraints().min}
+                  max={getDateConstraints().max}
+                  className="bg-gray-800 text-white border-gray-700"
+                />
+              </div>
+            </div>
+
+            {/* Validation Period */}
+            <div className="flex flex-col space-y-4">
+              <label className="text-white mb-1">Validation Period</label>
+              
+              {/* Validation Start Date */}
+              <div className="flex flex-col space-y-2">
+                <label className="text-sm text-gray-300">Start Date</label>
+                <Input
+                  type="date"
+                  value={validationStartDate}
+                  onChange={(e) => setValidationStartDate(e.target.value)}
+                  min={getDateConstraints().min}
+                  max={getDateConstraints().max}
+                  className="bg-gray-800 text-white border-gray-700"
+                />
+              </div>
+
+              {/* Validation End Date */}
+              <div className="flex flex-col space-y-2">
+                <label className="text-sm text-gray-300">End Date</label>
+                <Input
+                  type="date"
+                  value={validationEndDate}
+                  onChange={(e) => setValidationEndDate(e.target.value)}
+                  min={getDateConstraints().min}
+                  max={getDateConstraints().max}
+                  className="bg-gray-800 text-white border-gray-700"
+                />
+              </div>
+            </div>
+
+            {/* Period validation errors */}
+            {periodValidationErrors.length > 0 && (
+              <div className="mt-2 p-2 bg-red-900/20 border border-red-500 rounded">
+                {periodValidationErrors.map((error, i) => (
+                  <p key={i} className="text-red-400 text-sm">{error}</p>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -375,50 +635,99 @@ export default function Page() {
           </CardContent>
         </Card>
 
-        {/* Performance Analytics */}
+        {/* Training Performance */}
         <Card>
           <CardHeader>
             <div className="flex items-center space-x-2">
               <ChartPie size={20} className="text-white" />
-              <CardTitle className="text-white">Performance Analytics</CardTitle>
+              <CardTitle className="text-white">Training Performance</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {metrics ? (
+            {trainingMetrics ? (
               <div className="grid grid-cols-2 gap-4">
                 <Card className="bg-gray-800">
                   <CardContent>
                     <h3 className="text-sm font-medium text-gray-100">Win Rate</h3>
-                    <p className="text-2xl font-bold text-green-400">{metrics.winRate}</p>
+                    <p className="text-2xl font-bold text-green-400">{trainingMetrics.winRate}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-gray-800">
                   <CardContent>
                     <h3 className="text-sm font-medium text-gray-100">Monthly Return</h3>
-                    <p className="text-2xl font-bold text-green-400">{metrics.monthlyReturn}</p>
+                    <p className="text-2xl font-bold text-green-400">{trainingMetrics.monthlyReturn}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-gray-800">
                   <CardContent>
                     <h3 className="text-sm font-medium text-gray-100">Max Drawdown</h3>
-                    <p className="text-2xl font-bold text-red-400">{metrics.maxDrawdown}</p>
+                    <p className="text-2xl font-bold text-red-400">{trainingMetrics.maxDrawdown}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-gray-800">
                   <CardContent>
                     <h3 className="text-sm font-medium text-gray-100">Profit Factor</h3>
-                    <p className="text-2xl font-bold text-blue-400">{metrics.profitFactor}</p>
+                    <p className="text-2xl font-bold text-blue-400">{trainingMetrics.profitFactor}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-gray-800 col-span-2">
                   <CardContent>
                     <h3 className="text-sm font-medium text-gray-100">Sharpe Ratio</h3>
-                    <p className="text-2xl font-bold text-indigo-400">{metrics.sharpeRatio}</p>
+                    <p className="text-2xl font-bold text-indigo-400">{trainingMetrics.sharpeRatio}</p>
                   </CardContent>
                 </Card>
               </div>
             ) : (
-              <p className="text-white">Run a strategy to see performance metrics.</p>
+              <p className="text-white">Run a strategy to see training performance metrics.</p>
+            )}
+            <Button className="mt-4 w-full">View Full Dashboard</Button>
+          </CardContent>
+        </Card>
+
+        {/* Validation Performance */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center space-x-2">
+              <ChartPie size={20} className="text-white" />
+              <CardTitle className="text-white">Validation Performance</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {validationMetrics ? (
+              <div className="grid grid-cols-2 gap-4">
+                <Card className="bg-gray-800">
+                  <CardContent>
+                    <h3 className="text-sm font-medium text-gray-100">Win Rate</h3>
+                    <p className="text-2xl font-bold text-green-400">{validationMetrics.winRate}</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-gray-800">
+                  <CardContent>
+                    <h3 className="text-sm font-medium text-gray-100">Monthly Return</h3>
+                    <p className="text-2xl font-bold text-green-400">{validationMetrics.monthlyReturn}</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-gray-800">
+                  <CardContent>
+                    <h3 className="text-sm font-medium text-gray-100">Max Drawdown</h3>
+                    <p className="text-2xl font-bold text-red-400">{validationMetrics.maxDrawdown}</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-gray-800">
+                  <CardContent>
+                    <h3 className="text-sm font-medium text-gray-100">Profit Factor</h3>
+                    <p className="text-2xl font-bold text-blue-400">{validationMetrics.profitFactor}</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-gray-800 col-span-2">
+                  <CardContent>
+                    <h3 className="text-sm font-medium text-gray-100">Sharpe Ratio</h3>
+                    <p className="text-2xl font-bold text-indigo-400">{validationMetrics.sharpeRatio}</p>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : (
+              <p className="text-white">Run a strategy to see validation performance metrics.</p>
             )}
             <Button className="mt-4 w-full">View Full Dashboard</Button>
           </CardContent>
@@ -441,6 +750,29 @@ export default function Page() {
             {signalState === 'ready' && (
               <p className="mt-2 text-sm text-white">Generated {signalCount} signals for deployment.</p>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Execution Engine */}
+        <Card className="lg:col-span-3">
+          <CardHeader className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Code size={20} className="text-white" />
+              <CardTitle className="text-white">Execution Engine</CardTitle>
+            </div>
+            <Badge
+              variant={status === 'running' ? 'outline' : status === 'completed' ? 'default' : 'secondary'}
+              className="capitalize"
+            >
+              {status}
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            <ul className="h-48 overflow-auto space-y-2 p-4 bg-gray-800 rounded-lg">
+              {logs.map((l, i) => (
+                <li key={i} className="text-sm text-gray-100">{l}</li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
       </div>
