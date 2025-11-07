@@ -35,8 +35,11 @@ class PriceCollector:
         self.trading_pairs = [
             'BTCUSDT',  # Bitcoin
             'ETHUSDT',  # Ethereum
-            'LTCUSDT',  # Litecoin
-            'DOGEUSDT'  # Dogecoin
+            'XRPUSDT',  # XRP
+            'SOLUSDT',  # Solana
+            'BNBUSDT',  # Binance Coin
+            'DOGEUSDT',  # Dogecoin
+            'LTCUSDT'   # Litecoin
         ]
 
     def connect_db(self) -> psycopg2.extensions.connection:
@@ -52,8 +55,8 @@ class PriceCollector:
     def get_klines_data(self, symbol: str, interval: str = '1d') -> List[Dict[str, Any]]:
         """从Binance.us获取K线数据"""
         try:
-            # 获取最近4年的数据
-            three_years_ago = int((datetime.now() - timedelta(days=1460)).timestamp() * 1000)
+            # 获取最近3年的数据
+            three_years_ago = int((datetime.now() - timedelta(days=1095)).timestamp() * 1000)
             
             # 由于API限制，我们需要分批获取数据
             all_data = []

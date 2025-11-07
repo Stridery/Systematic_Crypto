@@ -10,10 +10,17 @@ import { Badge } from '@/components/ui/badge';
 import { TrendingUp, Cpu, ArrowsCross, ChartPie, Code, Loader } from 'tabler-icons-react';
 import Overview from 'kbar/example/src/Docs/Overview';
 import PageContainer from '@/components/layout/page-container';
+import { Line, LineChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer, Legend } from 'recharts';
+import {
+  ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent
+} from '@/components/ui/chart';
 
 // Supported exchanges and trading pairs
 const exchanges = ['Binance', 'Coinbase Pro', 'Kraken'];
-const pairs = ['BTCUSD', 'ETHUSD', 'LTCUSD', 'DOGEUSD'];
+const pairs = ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'BNBUSD', 'DOGEUSD', 'LTCUSD'];
 
 // Strategy definitions with parameters and descriptions
 const strategyDefs = [
@@ -114,6 +121,10 @@ export default function Page() {
   const [validationStartDate, setValidationStartDate] = useState<string>('');
   const [validationEndDate, setValidationEndDate] = useState<string>('');
   const [periodValidationErrors, setPeriodValidationErrors] = useState<string[]>([]);
+
+  // Equity curve data state
+  const [trainingEquityCurve, setTrainingEquityCurve] = useState<Array<{timestamp: string, equity: number}>>([]);
+  const [validationEquityCurve, setValidationEquityCurve] = useState<Array<{timestamp: string, equity: number}>>([]);
 
   const handleParamChange = (strategy: string, key: string, value: number) => {
     setConfigs(prev => ({
@@ -355,6 +366,18 @@ export default function Page() {
             long_window: responseData.best_params.long_window,
             monthlyReturn: responseData.best_params.monthlyReturn,
           });
+        }
+
+        // Set equity curve data if available
+        if (responseData.training_equity_curve) {
+          setTrainingEquityCurve(responseData.training_equity_curve);
+        } else {
+          setTrainingEquityCurve([]);
+        }
+        if (responseData.validation_equity_curve) {
+          setValidationEquityCurve(responseData.validation_equity_curve);
+        } else {
+          setValidationEquityCurve([]);
         }
         
         setLogs(prev => [
@@ -749,6 +772,120 @@ export default function Page() {
             </Button>
             {signalState === 'ready' && (
               <p className="mt-2 text-sm text-white">Generated {signalCount} signals for deployment.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Equity Curve Chart */}
+        <Card className="lg:col-span-3">
+          <CardHeader>
+            <CardTitle className="text-white">Training & Validation Equity Curve</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {trainingEquityCurve.length > 0 || validationEquityCurve.length > 0 ? (
+              <ChartContainer
+                config={{
+                  training: {
+                    label: 'Training',
+                    color: 'hsl(var(--chart-1))',
+                  },
+                  validation: {
+                    label: 'Validation',
+                    color: 'hsl(var(--chart-2))',
+                  },
+                }}
+                className="h-[400px] w-full"
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={[
+                      ...trainingEquityCurve.map(item => ({
+                        timestamp: item.timestamp,
+                        date: new Date(item.timestamp).toLocaleDateString(),
+                        training: item.equity,
+                        validation: null,
+                      })),
+                      ...validationEquityCurve.map(item => ({
+                        timestamp: item.timestamp,
+                        date: new Date(item.timestamp).toLocaleDateString(),
+                        training: null,
+                        validation: item.equity,
+                      })),
+                    ].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())}
+                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
+                    <XAxis 
+                      dataKey="date" 
+                      stroke="rgba(255, 255, 255, 0.5)"
+                      tick={{ fill: 'rgba(255, 255, 255, 0.7)' }}
+                      angle={-45}
+                      textAnchor="end"
+                      height={80}
+                    />
+                    <YAxis 
+                      stroke="rgba(255, 255, 255, 0.5)"
+                      tick={{ fill: 'rgba(255, 255, 255, 0.7)' }}
+                    />
+                    <ChartTooltip
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="rounded-lg border bg-background p-2 shadow-sm">
+                              <div className="grid gap-2">
+                                {payload.map((entry, index) => (
+                                  entry.value && (
+                                    <div key={index} className="flex items-center justify-between gap-2">
+                                      <div className="flex items-center gap-2">
+                                        <div
+                                          className="h-2.5 w-2.5 rounded-full"
+                                          style={{ backgroundColor: entry.color }}
+                                        />
+                                        <span className="text-sm text-muted-foreground">
+                                          {entry.dataKey === 'training' ? 'Training' : 'Validation'}
+                                        </span>
+                                      </div>
+                                      <span className="font-medium text-foreground">
+                                        ${Number(entry.value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                      </span>
+                                    </div>
+                                  )
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Legend />
+                    {trainingEquityCurve.length > 0 && (
+                      <Line
+                        type="monotone"
+                        dataKey="training"
+                        stroke="#8B5CF6"
+                        strokeWidth={2}
+                        dot={false}
+                        name="Training"
+                      />
+                    )}
+                    {validationEquityCurve.length > 0 && (
+                      <Line
+                        type="monotone"
+                        dataKey="validation"
+                        stroke="#10B981"
+                        strokeWidth={2}
+                        dot={false}
+                        name="Validation"
+                      />
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+              </ChartContainer>
+            ) : (
+              <div className="h-[400px] w-full flex items-center justify-center text-gray-400">
+                <p>No equity curve data available. Run a strategy to see the training and validation curves.</p>
+              </div>
             )}
           </CardContent>
         </Card>
