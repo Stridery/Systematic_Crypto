@@ -531,23 +531,10 @@ def calculate_btc_ma_signals(data: pd.DataFrame, short_window=20, long_window=50
         # 如果有持仓但没有交易信号，收益为0（不计算每日变化）
         # returns保持为0.0，不需要修改
     
-    # 检查最后一天是否还有持仓，如果有则强制平仓
-    if len(data) > 0 and current_buy_open is not None:
-        last_idx = len(data) - 1
-        # 在最后一天添加卖出信号
-        data.iloc[last_idx, data.columns.get_loc('signal')] = -1
-        # 计算强制平仓的收益
-        sell_price = data['open'].iloc[last_idx]
-        trade_return = (sell_price - current_buy_open) / current_buy_open
-        data.iloc[last_idx, data.columns.get_loc('returns')] = trade_return
-        if verbose:
-            # print(f"\n警告：策略结束时仍有持仓，已在最后一天强制平仓")
-            # print(f"  买入价格: ${current_buy_open:,.2f}")
-            # print(f"  卖出价格: ${sell_price:,.2f}")
-            # print(f"  收益率: {trade_return:.2%}")
-            pass
+    # 不再强制平仓：如果到end_date还有未完成的交易，直接忽略最后一次交易
+    # 性能指标计算时只统计已完成的交易（signal=-1），未完成的交易会被忽略
     
-    # 重新计算持仓状态（因为可能添加了强制平仓信号）
+    # 计算持仓状态
     data['position'] = data['signal'].replace({1: 1, -1: 0, 0: np.nan}).ffill().fillna(0).astype(int)
     
     # 计算累计收益
