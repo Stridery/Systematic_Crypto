@@ -3,24 +3,21 @@ from fastapi.middleware.cors import CORSMiddleware
 import time
 import threading
 import psycopg2
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Import your API routers
 from api import market, equity, coins, dashboard, strategy
 
-# --- Database Configuration ---
-# Use the same credentials as your other files
-# --- Timescale Cloud (db-98696) ---
-
-#DB_NAME = "tsdb"
-#DB_USER = "tsdbadmin"
-#DB_PASSWORD = "cm6dubfn1elnkx41"
-#DB_HOST = "gut9p6dyhy.hgllnyakjj.tsdb.cloud.timescale.com"
-#DB_PORT = 39036  # int is fine/preferred
-DB_NAME = "trading_db"
-DB_USER = "zhenghaoyou"
-DB_PASSWORD = ""   # 如果没设密码就留空字符串
-DB_HOST = "localhost"
-DB_PORT = 5432
+# Database Configuration
+DB_NAME = os.getenv('DB_NAME', 'trading_db')
+DB_USER = os.getenv('DB_USER', 'zhenghaoyou')
+DB_PASSWORD = os.getenv('DB_PASSWORD', '')
+DB_HOST = os.getenv('DB_HOST', 'localhost')
+DB_PORT = int(os.getenv('DB_PORT', '5432'))
 
 
 # --- Data Generation Logic ---

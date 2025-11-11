@@ -3,6 +3,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from collections import defaultdict
 import logging
+import os
 
 # 设置日志
 logging.basicConfig(level=logging.INFO)
@@ -11,11 +12,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Database Configuration
-DB_NAME = "trading_db"
-DB_USER = "zhenghaoyou"
-DB_PASSWORD = ""
-DB_HOST = "localhost"
-DB_PORT = 5432
+DB_NAME = os.getenv('DB_NAME', 'trading_db')
+DB_USER = os.getenv('DB_USER', 'zhenghaoyou')
+DB_PASSWORD = os.getenv('DB_PASSWORD', '')
+DB_HOST = os.getenv('DB_HOST', 'localhost')
+DB_PORT = int(os.getenv('DB_PORT', '5432'))
 
 @router.get("/equity-curve")
 def get_equity_curve():

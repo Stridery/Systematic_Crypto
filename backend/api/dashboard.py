@@ -2,22 +2,16 @@ from fastapi import APIRouter, HTTPException
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from decimal import Decimal
+import os
 
 router = APIRouter()
 
-# --- Database Configuration ---
-# Credentials for your TimescaleDB Cloud service
-# --- Timescale Cloud (db-98696) ---
-#DB_NAME = "tsdb"
-#DB_USER = "tsdbadmin"
-#DB_PASSWORD = "cm6dubfn1elnkx41"
-#DB_HOST = "gut9p6dyhy.hgllnyakjj.tsdb.cloud.timescale.com"
-#DB_PORT = 39036  # int is fine/preferred
-DB_NAME = "trading_db"
-DB_USER = "zhenghaoyou"
-DB_PASSWORD = ""   # 如果没设密码就留空字符串
-DB_HOST = "localhost"
-DB_PORT = 5432
+# Database Configuration
+DB_NAME = os.getenv('DB_NAME', 'trading_db')
+DB_USER = os.getenv('DB_USER', 'zhenghaoyou')
+DB_PASSWORD = os.getenv('DB_PASSWORD', '')
+DB_HOST = os.getenv('DB_HOST', 'localhost')
+DB_PORT = int(os.getenv('DB_PORT', '5432'))
 
 
 @router.get("/dashboard")

@@ -5,15 +5,16 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
+import os
 
 router = APIRouter()
 
 # Database configuration
-DB_NAME = "trading_db"
-DB_USER = "zhenghaoyou"
-DB_PASSWORD = ""
-DB_HOST = "localhost"
-DB_PORT = 5432
+DB_NAME = os.getenv('DB_NAME', 'trading_db')
+DB_USER = os.getenv('DB_USER', 'zhenghaoyou')
+DB_PASSWORD = os.getenv('DB_PASSWORD', '')
+DB_HOST = os.getenv('DB_HOST', 'localhost')
+DB_PORT = int(os.getenv('DB_PORT', '5432'))
 
 
 class MAStrategy:

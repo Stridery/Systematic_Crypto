@@ -4,6 +4,10 @@ from datetime import datetime, timedelta
 import requests
 import psycopg2
 from typing import List, Dict, Any
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 class PriceCollector:
@@ -26,7 +30,7 @@ class PriceCollector:
             'user': os.getenv('DB_USER', 'zhenghaoyou'),
             'password': os.getenv('DB_PASSWORD', ''),
             'host': os.getenv('DB_HOST', 'localhost'),
-            'port': os.getenv('DB_PORT', '5432')
+            'port': int(os.getenv('DB_PORT', '5432'))
         }
         
         # 交易对配置
