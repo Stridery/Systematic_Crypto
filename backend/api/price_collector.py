@@ -1,23 +1,21 @@
 import os
-import sys
 import time
-import random
 from datetime import datetime, timedelta
-import logging
 import requests
 import psycopg2
 from typing import List, Dict, Any
-import pandas as pd
 
-# 设置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 class PriceCollector:
+    """
+    Price Data Collector Class
+    
+    Handles fetching historical price data from Binance.us API
+    and saving to PostgreSQL database.
+    """
+    
     def __init__(self):
+        """Initialize the Price Collector"""
         # Binance.us API endpoints
         self.base_url = "https://api.binance.us"
         self.klines_endpoint = "/api/v3/klines"
@@ -43,17 +41,20 @@ class PriceCollector:
         ]
 
     def connect_db(self) -> psycopg2.extensions.connection:
-        """建立数据库连接"""
-        try:
-            conn = psycopg2.connect(**self.db_params)
-            logger.info("Successfully connected to database")
-            return conn
-        except Exception as e:
-            logger.error(f"Error connecting to database: {e}")
-            raise
+        """Establish database connection"""
+        return psycopg2.connect(**self.db_params)
 
     def get_klines_data(self, symbol: str, interval: str = '1d') -> List[Dict[str, Any]]:
-        """从Binance.us获取K线数据"""
+        """
+        Fetch K-line data from Binance.us
+        
+        Args:
+            symbol: Trading pair symbol (e.g., 'BTCUSDT')
+            interval: K-line interval (default: '1d' for daily)
+            
+        Returns:
+            List of dictionaries containing price data
+        """
         try:
             # 获取最近3年的数据
             three_years_ago = int((datetime.now() - timedelta(days=1095)).timestamp() * 1000)
@@ -61,8 +62,6 @@ class PriceCollector:
             # 由于API限制，我们需要分批获取数据
             all_data = []
             current_start = three_years_ago
-            
-            logger.info(f"Starting data collection from {datetime.fromtimestamp(three_years_ago/1000)}")
             
             while True:
                 params = {
@@ -82,12 +81,7 @@ class PriceCollector:
                     headers=headers
                 )
                 
-                # 打印请求URL和响应状态码，用于调试
-                logger.info(f"Request URL: {response.url}")
-                logger.info(f"Response status: {response.status_code}")
-                
                 if response.status_code != 200:
-                    logger.error(f"Error response: {response.text}")
                     break
                 
                 response.raise_for_status()
@@ -116,19 +110,20 @@ class PriceCollector:
                     
                 # 避免触发API限制
                 time.sleep(1)
-                
-                # 打印进度
-                latest_time = datetime.fromtimestamp(klines[-1][0] / 1000)
-                logger.info(f"Progress: Collected data up to {latest_time}")
             
-            logger.info(f"Successfully fetched {len(all_data)} records for {symbol}")
             return all_data
         except Exception as e:
-            logger.error(f"Error fetching historical data for {coin_id}: {e}")
             return []
 
     def save_to_db(self, data: List[Dict[str, Any]], trading_pair: str, conn: psycopg2.extensions.connection) -> None:
-        """将数据保存到price_data表"""
+        """
+        Save price data to database
+        
+        Args:
+            data: List of price data dictionaries
+            trading_pair: Trading pair name (e.g., 'BTCUSD')
+            conn: Database connection object
+        """
         if not data:
             return
         
@@ -162,27 +157,27 @@ class PriceCollector:
                     volume = EXCLUDED.volume
             """)
             conn.commit()
-            logger.info(f"Successfully saved {len(data)} records to price_data table")
         except Exception as e:
             conn.rollback()
-            logger.error(f"Error saving data to database: {e}")
         finally:
             cursor.close()
 
     def collect_data(self, clear_existing: bool = True) -> None:
-        """主要数据收集函数"""
+        """
+        Main data collection function
+        
+        Args:
+            clear_existing: Whether to clear existing data before collecting
+        """
         conn = self.connect_db()
         try:
             if clear_existing:
                 cursor = conn.cursor()
-                logger.info("Clearing existing price data...")
                 cursor.execute("TRUNCATE TABLE price_data;")
                 conn.commit()
-                logger.info("Existing price data cleared.")
                 cursor.close()
 
             for pair in self.trading_pairs:
-                logger.info(f"Collecting data for {pair}")
                 data = self.get_klines_data(pair)
                 if data:
                     # 将USDT转换为USD
@@ -192,9 +187,12 @@ class PriceCollector:
         finally:
             conn.close()
 
+
 def main():
+    """Main entry point"""
     collector = PriceCollector()
     collector.collect_data()
+
 
 if __name__ == "__main__":
     main()
