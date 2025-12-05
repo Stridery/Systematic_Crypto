@@ -7,7 +7,8 @@ from typing import List, Dict, Any
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent.parent  # backend -> project_root
+load_dotenv(BASE_DIR / ".env.local")
 
 
 class PriceCollector:
