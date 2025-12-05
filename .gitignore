@@ -15,7 +15,7 @@
 # production
 /build
 
-/analysis/data/*
+/analysis/data/**
 
 # misc
 .DS_Store
