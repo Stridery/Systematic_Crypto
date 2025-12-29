@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from models.logistic_model import LogisticModel
+from ..models.logistic_model import LogisticModel
 
 
 class LogisticTrainer:

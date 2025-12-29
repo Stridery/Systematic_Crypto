@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
-from models.lstm_model import LSTMClassifier, NNModel
+from ..models.lstm_model import LSTMClassifier, NNModel
 
 
 LABEL_COL = "signal"        # 分类标签：-1 / 0 / 1

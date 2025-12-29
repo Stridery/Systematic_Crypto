@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from models.lightgbm_model import LightGBMModel
+from ..models.lightgbm_model import LightGBMModel
 
 
 class LightGBMTrainer:

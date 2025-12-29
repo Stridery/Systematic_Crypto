@@ -4,11 +4,11 @@ from pathlib import Path
 import backtrader as bt
 import pandas as pd
 
-from models.lightgbm_model import LightGBMModel
-from models.svm_model import SVMModel
-from models.random_forest_model import RandomForestModel
-from models.lstm_model import NNModel
-from models.logistic_model import LogisticModel
+from ..models.lightgbm_model import LightGBMModel
+from ..models.svm_model import SVMModel
+from ..models.random_forest_model import RandomForestModel
+from ..models.lstm_model import NNModel
+from ..models.logistic_model import LogisticModel
 
 from .model_trading_strategy import ModelTradingStrategy
 
