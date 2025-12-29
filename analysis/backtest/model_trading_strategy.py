@@ -8,11 +8,12 @@ from models.svm_model import SVMModel
 from models.random_forest_model import RandomForestModel
 from models.lstm_model import NNModel
 from models.logistic_model import LogisticModel
+from models.transformer_model import TransformerNNModel
 
 
 class ModelTradingStrategy(bt.Strategy):
     params = dict(
-        # 使用哪个模型：'lightgbm' | 'svm' | 'random_forest' | 'nn'
+        # 使用哪个模型：'lightgbm' | 'svm' | 'random_forest' | 'nn' | 'transformer'
         model_type="lightgbm",
 
         # 每种模型的路径可以在 run_backtest 里覆盖
@@ -22,6 +23,7 @@ class ModelTradingStrategy(bt.Strategy):
             "svm": "models/btc/1h_svm.pkl",
             "random_forest": "models/btc/1h_random_forest.pkl",
             "nn": "models/btc/1h_lstm.pkl",   # 假设 nn 用的是 .pt / .pth
+            "transformer": "models/btc/1h_transformer.pkl",
         },
 
         feature_cols=(),   # 由 run_backtest 传入，保持和训练一致的列顺序
@@ -73,6 +75,8 @@ class ModelTradingStrategy(bt.Strategy):
             model = NNModel.load(model_path)
         elif model_type == "logistic":
             model = LogisticModel.load(model_path)
+        elif model_type == "transformer":
+            model = TransformerNNModel.load(model_path)
         else:
             raise ValueError(f"Unsupported model_type={model_type}")
 

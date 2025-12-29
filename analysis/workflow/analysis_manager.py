@@ -12,7 +12,9 @@ from train.train_logistic import LogisticTrainer
 from train.train_svm import SVMTrainer
 from train.train_random_forest import RandomForestTrainer
 from train.train_lstm import LSTMTrainer
+from train.train_transformer import TransformerTrainer
 from backtest.run_backtest_model import BacktestRunner
+from util.price_collector import PriceCollector
 
 
 class AnalysisManager:
@@ -27,7 +29,7 @@ class AnalysisManager:
     """
     
     # 支持的模型类型
-    MODEL_TYPES = Literal["lightgbm", "logistic", "svm", "random_forest", "lstm"]
+    MODEL_TYPES = Literal["lightgbm", "logistic", "svm", "random_forest", "lstm", "transformer"]
     
     def __init__(
         self,
@@ -123,6 +125,7 @@ class AnalysisManager:
                 "svm": self.model_dir / f"{timeframe}_p{signal_lookahead_periods}_svm.pkl",
                 "random_forest": self.model_dir / f"{timeframe}_p{signal_lookahead_periods}_random_forest.pkl",
                 "nn": self.model_dir / f"{timeframe}_p{signal_lookahead_periods}_lstm.pkl",
+                "transformer": self.model_dir / f"{timeframe}_p{signal_lookahead_periods}_transformer.pkl",
             }
         else:
             self.model_paths = {k: Path(v) if not isinstance(v, Path) else v 
@@ -133,6 +136,9 @@ class AnalysisManager:
     
     def _init_components(self):
         """初始化各个流程组件"""
+        # 价格收集器
+        self.price_collector = PriceCollector()
+        
         # 特征生成器
         self.feature_generator = FeatureGenerator(
             in_path=self.raw_data_path,
@@ -212,19 +218,79 @@ class AnalysisManager:
                 timeframe=self.timeframe,
                 lookahead_periods=self.signal_lookahead_periods,
             )
+        elif model_type == "transformer":
+            return TransformerTrainer(
+                data_path=self.processed_path,
+                model_dir=self.model_dir,
+                train_ratio=self.train_ratio,
+                timeframe=self.timeframe,
+                lookahead_periods=self.signal_lookahead_periods,
+            )
         else:
             raise ValueError(
                 f"Unsupported model_type: {model_type}. "
-                f"Supported types: lightgbm, logistic, svm, random_forest, lstm"
+                f"Supported types: lightgbm, logistic, svm, random_forest, lstm, transformer"
             )
     
-    def run_feature_generation(self, skip_if_exists: bool = True):
+    def update_raw_data(self, force_update: bool = False) -> bool:
+        """
+        更新原始价格数据（增量更新）
+        
+        Args:
+            force_update: 是否强制更新（忽略数据是否最新）
+            
+        Returns:
+            True 如果数据已更新，False 如果跳过
+        """
+        print("=" * 60)
+        print("[AnalysisManager] Step 0: Raw Data Update")
+        print("=" * 60)
+        
+        # 根据 timeframe 设置数据最大允许年龄（小时）
+        # 对于高频数据（1m, 5m），允许更短的年龄
+        # 对于低频数据（1d），允许更长的年龄
+        timeframe_to_max_age = {
+            '1m': 0.5,   # 30 分钟
+            '5m': 1,     # 1 小时
+            '15m': 2,    # 2 小时
+            '30m': 2,    # 2 小时
+            '1h': 2,     # 2 小时
+            '4h': 4,     # 4 小时
+            '1d': 24,    # 24 小时
+        }
+        max_age_hours = timeframe_to_max_age.get(self.timeframe, 2)
+        
+        # 构建交易对符号
+        symbol = f"{self.coin.upper()}USDT"
+        
+        # 更新数据
+        updated = self.price_collector.update_data(
+            symbol=symbol,
+            interval=self.timeframe,
+            file_path=self.raw_data_path,
+            max_age_hours=max_age_hours,
+            force_update=force_update,
+        )
+        
+        if updated:
+            print("[AnalysisManager] Raw data updated successfully.\n")
+        else:
+            print("[AnalysisManager] Raw data is up to date, skipping update.\n")
+        
+        return updated
+    
+    def run_feature_generation(self, skip_if_exists: bool = True, update_data: bool = True):
         """
         执行特征生成步骤
         
         Args:
             skip_if_exists: 如果中间文件已存在是否跳过
+            update_data: 是否在生成特征前更新原始数据
         """
+        # 在生成特征前，先更新原始数据
+        if update_data:
+            self.update_raw_data(force_update=False)
+        
         print("=" * 60)
         print("[AnalysisManager] Step 1: Feature Generation")
         print("=" * 60)
@@ -275,6 +341,7 @@ class AnalysisManager:
             "svm": f"{self.timeframe}_p{self.signal_lookahead_periods}_svm.pkl",
             "random_forest": f"{self.timeframe}_p{self.signal_lookahead_periods}_random_forest.pkl",
             "lstm": f"{self.timeframe}_p{self.signal_lookahead_periods}_lstm.pkl",
+            "transformer": f"{self.timeframe}_p{self.signal_lookahead_periods}_transformer.pkl",
         }
         model_path = self.model_dir / model_file_map[model_type.lower()]
         
@@ -314,6 +381,7 @@ class AnalysisManager:
         skip_training: bool = True,
         run_backtest: bool = True,
         lookahead_periods: int = 1,
+        update_data: bool = True,
     ):
         """
         执行完整的分析流程
@@ -325,6 +393,7 @@ class AnalysisManager:
             skip_training: 如果模型文件已存在是否跳过训练
             run_backtest: 是否执行回测
             lookahead_periods: 信号生成时向前看的K线周期数，如果为None则使用初始化时的值
+            update_data: 是否在生成特征前更新原始数据
         """
         print("\n" + "=" * 60)
         print("Analysis Pipeline Started")
@@ -340,8 +409,8 @@ class AnalysisManager:
             print(f"Lookahead Periods: {lookahead_periods}")
         print("=" * 60 + "\n")
         
-        # Step 1: 特征生成
-        self.run_feature_generation(skip_if_exists=skip_feature_gen)
+        # Step 1: 特征生成（内部会调用数据更新）
+        self.run_feature_generation(skip_if_exists=skip_feature_gen, update_data=update_data)
         
         # Step 2: 信号生成
         self.run_signal_generation(skip_if_exists=skip_signal_gen, lookahead_periods=lookahead_periods)
@@ -361,17 +430,19 @@ class AnalysisManager:
         self,
         steps: list[str],
         model_type: Optional[MODEL_TYPES] = None,
+        update_data: bool = True,
     ):
         """
         执行自定义流程步骤
         
         Args:
-            steps: 要执行的步骤列表，可选值: ["feature", "signal", "train", "backtest"]
+            steps: 要执行的步骤列表，可选值: ["update", "feature", "signal", "train", "backtest"]
             model_type: 模型类型（train和backtest步骤需要）
+            update_data: 是否在feature步骤前自动更新数据（如果steps中包含"update"则忽略此参数）
         
         Example:
             manager.run_custom_pipeline(
-                steps=["feature", "signal", "train", "backtest"],
+                steps=["update", "feature", "signal", "train", "backtest"],
                 model_type="lightgbm"
             )
         """
@@ -383,11 +454,17 @@ class AnalysisManager:
             print(f"Model Type: {model_type.upper()}")
         print("=" * 60 + "\n")
         
+        # 检查是否包含 "update" 步骤
+        has_update_step = "update" in [s.lower() for s in steps]
+        
         for step in steps:
             step = step.lower()
             
-            if step == "feature":
-                self.run_feature_generation()
+            if step == "update":
+                self.update_raw_data(force_update=False)
+            elif step == "feature":
+                # 如果步骤列表中没有显式的 "update"，且 update_data=True，则自动更新
+                self.run_feature_generation(update_data=update_data and not has_update_step)
             elif step == "signal":
                 self.run_signal_generation()
             elif step == "train":

@@ -17,6 +17,7 @@ from models.svm_model import SVMModel
 from models.random_forest_model import RandomForestModel
 from models.lstm_model import NNModel
 from models.logistic_model import LogisticModel
+from models.transformer_model import TransformerNNModel
 from backtest.model_trading_strategy import ModelTradingStrategy
 
 # ============================================================
@@ -70,6 +71,7 @@ class BacktestRunner:
                 "svm": model_dir / f"{timeframe}_p{lookahead_periods}_svm.pkl",
                 "random_forest": model_dir / f"{timeframe}_p{lookahead_periods}_random_forest.pkl",
                 "nn": model_dir / f"{timeframe}_p{lookahead_periods}_lstm.pkl",
+                "transformer": model_dir / f"{timeframe}_p{lookahead_periods}_transformer.pkl",
             }
         else:
             self.model_paths = {k: Path(v) if not isinstance(v, Path) else v 
@@ -94,6 +96,7 @@ class BacktestRunner:
         elif model_type == "random_forest": model = RandomForestModel.load(model_path)
         elif model_type == "nn": model = NNModel.load(model_path)
         elif model_type == "logistic": model = LogisticModel.load(model_path)
+        elif model_type == "transformer": model = TransformerNNModel.load(model_path)
         else: raise ValueError(f"Unsupported model_type={model_type}")
         return model, model_path
 
