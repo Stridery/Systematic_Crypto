@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..models.random_forest_model import RandomForestModel
+from models.random_forest_model import RandomForestModel
 
 
 class RandomForestTrainer:

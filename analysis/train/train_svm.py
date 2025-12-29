@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..models.svm_model import SVMModel
+from models.svm_model import SVMModel
 
 
 class SVMTrainer:

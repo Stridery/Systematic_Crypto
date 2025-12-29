@@ -5,14 +5,14 @@
 from pathlib import Path
 from typing import Optional, Literal
 
-from ..pipeline.make_features_talib import FeatureGenerator
-from ..pipeline.make_signal import SignalGenerator
-from ..train.train_lightgbm import LightGBMTrainer
-from ..train.train_logistic import LogisticTrainer
-from ..train.train_svm import SVMTrainer
-from ..train.train_random_forest import RandomForestTrainer
-from ..train.train_lstm import LSTMTrainer
-from ..backtest.run_backtest_model import BacktestRunner
+from pipeline.make_features_talib import FeatureGenerator
+from pipeline.make_signal import SignalGenerator
+from train.train_lightgbm import LightGBMTrainer
+from train.train_logistic import LogisticTrainer
+from train.train_svm import SVMTrainer
+from train.train_random_forest import RandomForestTrainer
+from train.train_lstm import LSTMTrainer
+from backtest.run_backtest_model import BacktestRunner
 
 
 class AnalysisManager:

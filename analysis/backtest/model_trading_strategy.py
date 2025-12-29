@@ -3,11 +3,11 @@ import backtrader as bt
 import pandas as pd
 
 # 按你的实际文件结构改这里的 import 路径和类名
-from ..models.lightgbm_model import LightGBMModel
-from ..models.svm_model import SVMModel
-from ..models.random_forest_model import RandomForestModel
-from ..models.lstm_model import NNModel
-from ..models.logistic_model import LogisticModel
+from models.lightgbm_model import LightGBMModel
+from models.svm_model import SVMModel
+from models.random_forest_model import RandomForestModel
+from models.lstm_model import NNModel
+from models.logistic_model import LogisticModel
 
 
 class ModelTradingStrategy(bt.Strategy):
