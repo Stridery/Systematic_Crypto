@@ -50,12 +50,17 @@ class LogisticModel:
 
     # =============== 训练 & 预测 ===============
 
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
+    def fit(self, X: pd.DataFrame, y: pd.Series, sample_weight=None) -> None:
         """
         训练逻辑回归模型。
         这里假设 X 的列顺序已经按 feature_cols 排好。
+        
+        Args:
+            X: 特征数据
+            y: 标签数据
+            sample_weight: 样本权重（可选）
         """
-        self.pipeline.fit(X, y)
+        self.pipeline.fit(X, y, logreg__sample_weight=sample_weight)
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         """

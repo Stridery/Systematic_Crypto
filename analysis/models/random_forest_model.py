@@ -27,10 +27,17 @@ class RandomForestModel:
         X_train,
         y_train,
         rf_params: Optional[Dict[str, Any]] = None,
+        sample_weight=None,
     ):
         """
         训练随机森林模型
         rf_params 允许你自己传入超参数；如果不传就用一套默认值
+        
+        Args:
+            X_train: 训练特征
+            y_train: 训练标签
+            rf_params: 随机森林超参数
+            sample_weight: 样本权重（可选）
         """
         if rf_params is None:
             rf_params = {
@@ -47,7 +54,10 @@ class RandomForestModel:
             }
 
         self.model = RandomForestClassifier(**rf_params)
-        self.model.fit(X_train, y_train)
+        if sample_weight is not None:
+            self.model.fit(X_train, y_train, sample_weight=sample_weight)
+        else:
+            self.model.fit(X_train, y_train)
 
     def predict(self, X):
         if self.model is None:

@@ -12,24 +12,57 @@ from sklearn.utils.class_weight import compute_class_weight
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
 from models.transformer_model import TransformerClassifier, TransformerNNModel
+from util.weight_utils import normalize_weights_robust
 
 
 LABEL_COL = "signal"        # 分类标签：-1 / 0 / 1
 IS_STRONG_COL = "is_strong"  # 和 LightGBM 一样，用它做强样本筛选
+RET_NEXT_COL = "ret_next_lookahead"  # 未来收益列，用于计算权重
+
+
+class WeightedCrossEntropyLoss(nn.Module):
+    """
+    加权交叉熵损失函数
+    每个样本的损失乘以对应的权重
+    """
+    def __init__(self, class_weights=None):
+        super().__init__()
+        self.class_weights = class_weights
+    
+    def forward(self, logits, targets, sample_weights):
+        """
+        Args:
+            logits: 模型输出 (batch_size, num_classes)
+            targets: 真实标签 (batch_size,)
+            sample_weights: 样本权重 (batch_size,)
+        """
+        # 先计算标准交叉熵（每个样本的损失）
+        ce_loss = F.cross_entropy(
+            logits, targets,
+            weight=self.class_weights,
+            reduction='none'  # 返回每个样本的损失
+        )
+        # 乘以样本权重
+        weighted_loss = ce_loss * sample_weights
+        return weighted_loss.mean()
 
 
 class TabularDataset(Dataset):
-    def __init__(self, X: np.ndarray, y: np.ndarray):
+    def __init__(self, X: np.ndarray, y: np.ndarray, weights: np.ndarray = None):
         self.X = X.astype(np.float32)
         self.y = y.astype(np.int64)
+        self.weights = weights.astype(np.float32) if weights is not None else None
     
     def __len__(self):
         return len(self.X)
     
     def __getitem__(self, idx: int):
+        if self.weights is not None:
+            return self.X[idx], self.y[idx], self.weights[idx]
         return self.X[idx], self.y[idx]
 
 
@@ -81,7 +114,13 @@ class TransformerTrainer:
         all_preds = []
         all_targets = []
         with torch.no_grad():
-            for xb, yb in loader:
+            for batch in loader:
+                # 处理带权重或不带权重的batch
+                if len(batch) == 3:
+                    xb, yb, _ = batch  # 评估时不需要权重
+                else:
+                    xb, yb = batch
+                
                 xb = xb.to(device)
                 yb = yb.to(device)
                 logits = model(xb)
@@ -121,14 +160,22 @@ class TransformerTrainer:
         df = pd.read_csv(self.data_path, parse_dates=["datetime"])
         df = df.sort_values("datetime").reset_index(drop=True)
         
-        # ---- 2. 构造特征列（照抄 train_lightgbm 的 drop_cols）----
+        # ---- 2. 提取权重（ret_next_lookahead的绝对值）----
+        if RET_NEXT_COL not in df.columns:
+            raise ValueError(f"Column '{RET_NEXT_COL}' not found in data. Please regenerate signal with updated make_signal.py")
+        
+        ret_next_all = df[RET_NEXT_COL].values
+        weights_all = normalize_weights_robust(ret_next_all, min_weight=0.1, max_weight=10.0)
+        print(f"[train_transformer] Weight stats: min={weights_all.min():.4f}, max={weights_all.max():.4f}, mean={weights_all.mean():.4f}")
+        
+        # ---- 3. 构造特征列（照抄 train_lightgbm 的 drop_cols）----
         drop_cols = [
             "datetime",
             "signal",
             "open",
             "high",
             "low",
-            "ret_next_1h",
+            "ret_next_lookahead",
             "is_strong",
         ]
         drop_cols = [c for c in drop_cols if c in df.columns]
@@ -139,7 +186,7 @@ class TransformerTrainer:
         # 标签（-1/0/1）
         y_all_raw = df[LABEL_COL].astype(int).values
         
-        # ---- 3. 按时间切分 train / val（和 LightGBM 一样）----
+        # ---- 4. 按时间切分 train / val（和 LightGBM 一样）----
         n_total = len(df)
         n_train = int(n_total * self.train_ratio)
         print(f"[train_transformer] Total samples: {n_total}")
@@ -152,7 +199,11 @@ class TransformerTrainer:
         y_train_full_raw = y_all_raw[:n_train]
         y_val_raw = y_all_raw[n_train:]
         
-        # ---- 4. 训练集只用 is_strong == 1 的样本（和 LightGBM 一样）----
+        # 权重也要切分
+        weights_train_full = weights_all[:n_train]
+        weights_val = weights_all[n_train:]
+        
+        # ---- 5. 训练集只用 is_strong == 1 的样本（和 LightGBM 一样）----
         if IS_STRONG_COL in df.columns:
             is_strong_train = df[IS_STRONG_COL].iloc[:n_train].reset_index(drop=True)
             mask = is_strong_train == 1
@@ -163,31 +214,34 @@ class TransformerTrainer:
                 print("[train_transformer] WARNING: is_strong==1 has 0 samples in train range, using ALL train rows")
                 X_train = X_train_full
                 y_train_raw = y_train_full_raw
+                weights_train = weights_train_full
             else:
                 X_train = X_train_full[mask].reset_index(drop=True)
                 y_train_raw = y_train_full_raw[mask.values]
+                weights_train = weights_train_full[mask.values]
         else:
             print("[train_transformer] WARNING: no is_strong column, using ALL train rows")
             X_train = X_train_full
             y_train_raw = y_train_full_raw
+            weights_train = weights_train_full
         
-        # ---- 5. 标签映射 (-1/0/1 -> 0/1/2) ----
+        # ---- 6. 标签映射 (-1/0/1 -> 0/1/2) ----
         label_to_idx = {-1: 0, 0: 1, 1: 2}
         idx_to_label = {v: k for k, v in label_to_idx.items()}
         
         y_train = np.array([label_to_idx[int(v)] for v in y_train_raw], dtype=np.int64)
         y_val = np.array([label_to_idx[int(v)] for v in y_val_raw], dtype=np.int64)
         
-        # ---- 6. 标准化（只用 train 拟合）----
+        # ---- 7. 标准化（只用 train 拟合）----
         scaler = StandardScaler()
         scaler.fit(X_train.values)
         
         X_train_scaled = scaler.transform(X_train.values)
         X_val_scaled = scaler.transform(X_val.values)
         
-        # ---- 7. DataLoader / 模型 / 优化器 ----
-        train_ds = TabularDataset(X_train_scaled, y_train)
-        val_ds = TabularDataset(X_val_scaled, y_val)
+        # ---- 8. DataLoader / 模型 / 优化器 ----
+        train_ds = TabularDataset(X_train_scaled, y_train, weights=weights_train)
+        val_ds = TabularDataset(X_val_scaled, y_val, weights=weights_val)
         
         train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=False)
         val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, drop_last=False)
@@ -213,7 +267,8 @@ class TransformerTrainer:
         )
         class_weights_t = torch.tensor(class_weights, dtype=torch.float32).to(device)
         
-        criterion = nn.CrossEntropyLoss(weight=class_weights_t)
+        # 使用加权交叉熵损失（每个样本的loss乘以价格变动权重）
+        criterion = WeightedCrossEntropyLoss(class_weights=class_weights_t)
         optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
         
         # 根据 val_loss 动态调 lr
@@ -239,13 +294,24 @@ class TransformerTrainer:
             # ---------- train ----------
             model.train()
             total_loss = 0.0
-            for xb, yb in train_loader:
+            for batch in train_loader:
+                if len(batch) == 3:
+                    xb, yb, wb = batch
+                    wb = wb.to(device)
+                else:
+                    xb, yb = batch
+                    wb = None
+                
                 xb = xb.to(device)
                 yb = yb.to(device)
                 
                 optimizer.zero_grad()
                 logits = model(xb)
-                loss = criterion(logits, yb)
+                if wb is not None:
+                    loss = criterion(logits, yb, wb)
+                else:
+                    # 如果没有权重，使用标准损失（向后兼容）
+                    loss = F.cross_entropy(logits, yb, weight=class_weights_t)
                 loss.backward()
                 # 梯度裁剪，防止梯度爆炸
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -261,12 +327,22 @@ class TransformerTrainer:
             all_preds = []
             all_targets = []
             with torch.no_grad():
-                for xb, yb in val_loader:
+                for batch in val_loader:
+                    if len(batch) == 3:
+                        xb, yb, wb = batch
+                        wb = wb.to(device)
+                    else:
+                        xb, yb = batch
+                        wb = None
+                    
                     xb = xb.to(device)
                     yb = yb.to(device)
                     
                     logits = model(xb)
-                    loss = criterion(logits, yb)
+                    if wb is not None:
+                        loss = criterion(logits, yb, wb)
+                    else:
+                        loss = F.cross_entropy(logits, yb, weight=class_weights_t)
                     val_loss += loss.item() * xb.size(0)
                     
                     preds = logits.argmax(dim=1)

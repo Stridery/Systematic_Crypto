@@ -6,6 +6,9 @@ from pathlib import Path
 import pandas as pd
 
 from models.random_forest_model import RandomForestModel
+from util.weight_utils import normalize_weights_robust
+
+RET_NEXT_COL = "ret_next_lookahead"  # 未来收益列，用于计算权重
 
 
 class RandomForestTrainer:
@@ -48,9 +51,17 @@ class RandomForestTrainer:
         if train_ratio is None:
             train_ratio = self.train_ratio
             
-        print(f"[train_lgb] Reading data from {self.data_path} ...")
+        print(f"[train_rf] Reading data from {self.data_path} ...")
         df = pd.read_csv(self.data_path, parse_dates=["datetime"])
         df = df.sort_values("datetime").reset_index(drop=True)
+
+        # 提取权重（ret_next_lookahead的绝对值）
+        if RET_NEXT_COL not in df.columns:
+            raise ValueError(f"Column '{RET_NEXT_COL}' not found in data. Please regenerate signal with updated make_signal.py")
+        
+        ret_next_all = df[RET_NEXT_COL].values
+        weights_all = normalize_weights_robust(ret_next_all, min_weight=0.1, max_weight=10.0)
+        print(f"[train_rf] Weight stats: min={weights_all.min():.4f}, max={weights_all.max():.4f}, mean={weights_all.mean():.4f}")
 
         # 目标列
         y = df["signal"].astype(int)
@@ -58,7 +69,7 @@ class RandomForestTrainer:
         # 这些列不能当特征用：
         #  - 时间 & OHLCV
         #  - label
-        #  - 用来构造 label 的未来收益 ret_next_1h
+        #  - 用来构造 label 的未来收益 ret_next_lookahead
         #  - is_strong（仅用来做训练样本过滤）
         drop_cols = [
             "datetime",
@@ -66,7 +77,7 @@ class RandomForestTrainer:
             "open",
             "high",
             "low",
-            "ret_next_1h",
+            "ret_next_lookahead",
             "is_strong",
         ]
 
@@ -76,32 +87,39 @@ class RandomForestTrainer:
         n_total = len(df)
         n_train = int(n_total * train_ratio)
 
-        print(f"[train_lgb] Total samples: {n_total}")
-        print(f"[train_lgb] Train: {n_train}, Val: {n_total - n_train}")
-        print(f"[train_lgb] Feature cols ({len(feature_cols)}): {feature_cols}")
+        print(f"[train_rf] Total samples: {n_total}")
+        print(f"[train_rf] Train: {n_train}, Val: {n_total - n_train}")
+        print(f"[train_rf] Feature cols ({len(feature_cols)}): {feature_cols}")
 
         # 先按时间切分 train / val
         X_train = X.iloc[:n_train].reset_index(drop=True)
         X_val = X.iloc[n_train:].reset_index(drop=True)
         y_train = y.iloc[:n_train].reset_index(drop=True)
         y_val = y.iloc[n_train:].reset_index(drop=True)
+        
+        # 权重也要切分
+        weights_train_full = weights_all[:n_train]
+        weights_val = weights_all[n_train:]
 
         if use_strong_only:
             # 只在训练集上做去噪；验证集保持原始分布
             is_strong_train = df["is_strong"].iloc[:n_train].reset_index(drop=True)
             mask = is_strong_train == 1
 
-            print(f"[train_lgb] Using strong-only train samples: {mask.sum()} / {len(mask)}")
+            print(f"[train_rf] Using strong-only train samples: {mask.sum()} / {len(mask)}")
             X_train = X_train[mask].reset_index(drop=True)
             y_train = y_train[mask].reset_index(drop=True)
+            weights_train = weights_train_full[mask.values]
+        else:
+            weights_train = weights_train_full
 
-        return X_train, X_val, y_train, y_val, feature_cols
+        return X_train, X_val, y_train, y_val, feature_cols, weights_train
 
     def train(self):
         """
         训练模型
         """
-        X_train, X_val, y_train, y_val, feature_cols = self.load_data(self.train_ratio)
+        X_train, X_val, y_train, y_val, feature_cols, weights_train = self.load_data(self.train_ratio)
 
         # 初始化模型
         rf_model = RandomForestModel()
@@ -109,7 +127,7 @@ class RandomForestTrainer:
         rf_model.train_ratio = self.train_ratio
 
         print("[train_rf] Training RandomForest model ...")
-        rf_model.fit(X_train, y_train)
+        rf_model.fit(X_train, y_train, sample_weight=weights_train)
 
         # ===== 在训练集上评估 =====
         print("\n[train_rf] Evaluating on TRAIN set ...")
@@ -141,6 +159,7 @@ class RandomForestTrainer:
 def load_data(train_ratio: float = 0.8, use_strong_only: bool = True):
     """
     向后兼容的函数接口
+    注意：现在返回6个值，包括权重
     """
     trainer = RandomForestTrainer(train_ratio=train_ratio)
     return trainer.load_data(train_ratio, use_strong_only)

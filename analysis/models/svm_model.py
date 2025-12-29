@@ -30,10 +30,17 @@ class SVMModel:
         X,
         y,
         svm_params: Optional[Dict[str, Any]] = None,
+        sample_weight=None,
     ):
         """
         训练 SVM 模型
         svm_params 允许传入超参数；如果不传，就用一套默认值
+        
+        Args:
+            X: 特征数据
+            y: 标签数据
+            svm_params: SVM 超参数
+            sample_weight: 样本权重（可选）
         """
         if svm_params is None:
             svm_params = {
@@ -55,7 +62,10 @@ class SVMModel:
             ]
         )
 
-        self.model.fit(X, y)
+        if sample_weight is not None:
+            self.model.fit(X, y, svc__sample_weight=sample_weight)
+        else:
+            self.model.fit(X, y)
 
     def predict(self, X):
         """

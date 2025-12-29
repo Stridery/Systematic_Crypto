@@ -59,7 +59,7 @@ class SignalGenerator:
         - 上面三种情况 is_strong = 1，其余 is_strong = 0
 
         注意：这里 **不删任何行**，只增加列：
-          - ret_next_1h (或 ret_next_Nh，N为lookahead_periods)
+          - ret_next_lookahead (未来lookahead_periods根K线的收益)
           - signal
           - is_strong
 
@@ -81,10 +81,10 @@ class SignalGenerator:
 
         # 2. 未来K线的收盘价 & 未来收益
         df["future_close"] = df["close"].shift(-lookahead_periods)
-        df["ret_next_1h"] = df["future_close"] / df["close"] - 1
+        df["ret_next_lookahead"] = df["future_close"] / df["close"] - 1
 
         # 3. 三分类 signal（不去噪）
-        ret_next = df["ret_next_1h"]
+        ret_next = df["ret_next_lookahead"]
         df["signal"] = 0
         df.loc[ret_next >= threshold, "signal"] = 1
         df.loc[ret_next <= -threshold, "signal"] = -1
@@ -98,7 +98,7 @@ class SignalGenerator:
         df.loc[strong_up | strong_down | strong_flat, "is_strong"] = 1
 
         # 5. 丢掉没有 future_close 的最后几行
-        df = df.dropna(subset=["future_close", "ret_next_1h"]).reset_index(drop=True)
+        df = df.dropna(subset=["future_close", "ret_next_lookahead"]).reset_index(drop=True)
 
         # 6. 不再需要 future_close 这列
         df = df.drop(columns=["future_close"])

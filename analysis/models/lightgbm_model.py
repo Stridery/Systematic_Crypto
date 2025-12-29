@@ -28,6 +28,7 @@ class LightGBMModel:
         y_train,
         eval_set=None,
         lgbm_params: Optional[Dict[str, Any]] = None,
+        sample_weight=None,
     ):
         """
         训练 LightGBM 模型
@@ -75,18 +76,22 @@ class LightGBMModel:
         self.model = LGBMClassifier(**lgbm_params)
 
         if eval_set is not None:
-            self.model.fit(
-                X_train,
-                y_train,
-                eval_set=eval_set,              # [(X_train, y_train), (X_val, y_val)] 或 [(X_val, y_val)]
-                eval_metric="multi_logloss",    # 多分类常用
-                callbacks=[
+            fit_params = {
+                "eval_set": eval_set,              # [(X_train, y_train), (X_val, y_val)] 或 [(X_val, y_val)]
+                "eval_metric": "multi_logloss",    # 多分类常用
+                "callbacks": [
                     lgb.early_stopping(stopping_rounds=50),
                     lgb.log_evaluation(period=50),  # 每 50 轮打印一次日志，可按需调
                 ],
-            )
+            }
+            if sample_weight is not None:
+                fit_params["sample_weight"] = sample_weight
+            self.model.fit(X_train, y_train, **fit_params)
         else:
-            self.model.fit(X_train, y_train)
+            if sample_weight is not None:
+                self.model.fit(X_train, y_train, sample_weight=sample_weight)
+            else:
+                self.model.fit(X_train, y_train)
 
     def predict(self, X):
         if self.model is None:
