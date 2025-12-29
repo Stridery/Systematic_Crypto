@@ -154,7 +154,7 @@ class FeatureGenerator:
 
     def add_lag_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        给一些核心特征加 lag，让模型看到"过去几小时的状态"
+            给一些核心特征加 lag，让模型看到"过去几小时的状态"
         """
         lag_cols = [
             "ret_1h",
@@ -196,10 +196,19 @@ class FeatureGenerator:
         df["dayofweek"] = df["datetime"].dt.dayofweek
         return df
 
-    def generate_features(self):
+    def generate_features(self, skip_if_exists: bool = True):
         """
         生成所有特征并保存到文件
+        
+        Args:
+            skip_if_exists: 如果输出文件已存在是否跳过
         """
+        # 检查输出文件是否已存在
+        if skip_if_exists and self.out_path.exists():
+            print(f"[FeatureGenerator] Output file already exists: {self.out_path}")
+            print("[FeatureGenerator] Skipping feature generation.")
+            return
+        
         self.out_dir.mkdir(parents=True, exist_ok=True)
         df = pd.read_csv(self.in_path)
 

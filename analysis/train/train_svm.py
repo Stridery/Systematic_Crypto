@@ -19,6 +19,8 @@ class SVMTrainer:
         model_dir: Path = Path("models/btc"),
         model_path: Path = None,
         train_ratio: float = 0.8,
+        timeframe: str = "1h",
+        lookahead_periods: int = 1,
     ):
         """
         初始化训练器
@@ -26,13 +28,18 @@ class SVMTrainer:
         Args:
             data_path: 数据路径
             model_dir: 模型目录
-            model_path: 模型保存路径，如果为None则使用默认路径
+            model_path: 模型保存路径，如果为None则使用默认路径（基于timeframe和lookahead_periods）
             train_ratio: 训练集比例
+            timeframe: K线时长，如 "1h", "1d", "1min"，用于生成模型文件名
+            lookahead_periods: 信号生成的lookahead周期数，用于生成模型文件名
         """
         self.data_path = data_path
         self.model_dir = model_dir
+        self.timeframe = timeframe
+        self.lookahead_periods = lookahead_periods
         if model_path is None:
-            self.model_path = model_dir / "1h_svm.pkl"
+            # 模型文件名格式：{timeframe}_p{lookahead_periods}_{model}.pkl
+            self.model_path = model_dir / f"{timeframe}_p{lookahead_periods}_svm.pkl"
         else:
             self.model_path = model_path
         self.train_ratio = train_ratio

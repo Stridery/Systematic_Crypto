@@ -31,54 +31,74 @@ class AnalysisManager:
     
     def __init__(
         self,
-        # 数据路径配置
-        raw_data_path: Path = Path("data/raw/BTCUSDT_1h.csv"),
-        intermediate_dir: Path = Path("data/intermediate"),
-        intermediate_file: str = "btc_1h_features.csv",
-        processed_dir: Path = Path("data/processed"),
-        processed_file: str = "btc_1h_features_signal.csv",
+        # 币种和K线时长配置（会自动拼接所有路径）
+        coin: str = "btc",
+        timeframe: str = "1h",
         
-        # 特征生成参数
-        feature_threshold: float = 0.001,
-        feature_delta: float = 0.0004,
+        # 数据路径配置
+        intermediate_dir: Path = Path("data/intermediate"),
+        processed_dir: Path = Path("data/processed"),
+        
+        # 信号生成参数
+        signal_threshold: float = 0.001,
+        signal_delta: float = 0.0004,
+        signal_lookahead_periods: int = 1,
         
         # 模型训练参数
-        model_dir: Path = Path("models/btc"),
+        model_dir: Optional[Path] = None,
         train_ratio: float = 0.8,
         
         # 回测参数
         val_path: Optional[Path] = None,
         model_paths: Optional[dict] = None,
+        output_dir: Optional[Path] = None,
     ):
         """
         初始化分析管理器
         
         Args:
-            raw_data_path: 原始数据路径
+            coin: 币种，如 "btc", "sol"（小写）
+            timeframe: K线时长，如 "1h", "1d", "1m"
             intermediate_dir: 中间数据目录
-            intermediate_file: 中间数据文件名
             processed_dir: 处理后数据目录
-            processed_file: 处理后数据文件名
-            feature_threshold: 信号生成阈值
-            feature_delta: 信号生成delta参数
-            model_dir: 模型保存目录
+            signal_threshold: 信号生成阈值
+            signal_delta: 信号生成delta参数
+            signal_lookahead_periods: 信号生成时向前看的K线周期数，默认为1（下一根K线）
+            model_dir: 模型保存目录，如果为None则根据coin自动生成
             train_ratio: 训练集比例
             val_path: 回测验证数据路径，如果为None则使用processed_file
-            model_paths: 模型路径字典，如果为None则使用默认路径
+            model_paths: 模型路径字典，如果为None则根据coin和timeframe自动生成
+            output_dir: 回测结果输出目录，用于保存equity curve图片，如果为None则使用默认路径analysis/backtest/curves
         """
-        # 数据路径
-        self.raw_data_path = raw_data_path
-        self.intermediate_dir = intermediate_dir
-        self.intermediate_path = intermediate_dir / intermediate_file
-        self.processed_dir = processed_dir
-        self.processed_path = processed_dir / processed_file
+        # 币种和K线时长
+        self.coin = coin.lower()
+        self.timeframe = timeframe
         
-        # 特征生成参数
-        self.feature_threshold = feature_threshold
-        self.feature_delta = feature_delta
+        # 自动生成原始数据路径：data/raw/{COIN}USDT_{TIMEFRAME}.csv
+        # 例如：BTCUSDT_1d.csv, ETHUSDT_1m.csv
+        coin_upper = self.coin.upper()
+        self.raw_data_path = Path(f"data/raw/{coin_upper}USDT_{timeframe}.csv")
+        
+        # 中间文件路径：data/intermediate/{coin}_{timeframe}_features.csv
+        self.intermediate_dir = intermediate_dir
+        self.intermediate_path = intermediate_dir / f"{self.coin}_{timeframe}_features.csv"
+        
+        # 处理后文件路径：data/processed/{coin}_{timeframe}_p{lookahead_periods}_features_signal.csv
+        # 例如：btc_1h_p1_features_signal.csv, btc_1h_p5_features_signal.csv
+        self.processed_dir = processed_dir
+        self.processed_path = processed_dir / f"{self.coin}_{timeframe}_p{signal_lookahead_periods}_features_signal.csv"
+        
+        # 信号生成参数
+        self.signal_threshold = signal_threshold
+        self.signal_delta = signal_delta
+        self.signal_lookahead_periods = signal_lookahead_periods
         
         # 模型训练参数
-        self.model_dir = model_dir
+        if model_dir is None:
+            # 模型目录：models/{coin}/
+            self.model_dir = Path(f"models/{self.coin}")
+        else:
+            self.model_dir = model_dir
         self.train_ratio = train_ratio
         
         # 回测参数
@@ -86,7 +106,27 @@ class AnalysisManager:
             self.val_path = self.processed_path
         else:
             self.val_path = val_path
-        self.model_paths = model_paths
+        
+        # 如果未指定output_dir，使用默认路径：analysis/backtest/curves
+        if output_dir is None:
+            self.output_dir = Path("analysis/backtest/curves")
+        else:
+            self.output_dir = output_dir
+        
+        # 自动生成模型路径字典（如果未提供）
+        # 模型文件名格式：{timeframe}_p{lookahead_periods}_{model}.pkl
+        # 例如：1h_p1_lightgbm.pkl, 1h_p5_lightgbm.pkl
+        if model_paths is None:
+            self.model_paths = {
+                "logistic": self.model_dir / f"{timeframe}_p{signal_lookahead_periods}_logistic.pkl",
+                "lightgbm": self.model_dir / f"{timeframe}_p{signal_lookahead_periods}_lightgbm.pkl",
+                "svm": self.model_dir / f"{timeframe}_p{signal_lookahead_periods}_svm.pkl",
+                "random_forest": self.model_dir / f"{timeframe}_p{signal_lookahead_periods}_random_forest.pkl",
+                "nn": self.model_dir / f"{timeframe}_p{signal_lookahead_periods}_lstm.pkl",
+            }
+        else:
+            self.model_paths = {k: Path(v) if not isinstance(v, Path) else v 
+                               for k, v in model_paths.items()}
         
         # 初始化各个组件
         self._init_components()
@@ -105,14 +145,19 @@ class AnalysisManager:
             raw_path=self.intermediate_path,
             out_dir=self.processed_dir,
             out_path=self.processed_path,
-            threshold=self.feature_threshold,
-            delta=self.feature_delta,
+            threshold=self.signal_threshold,
+            delta=self.signal_delta,
+            lookahead_periods=self.signal_lookahead_periods,
         )
         
         # 回测运行器
         self.backtest_runner = BacktestRunner(
             val_path=self.val_path,
             model_paths=self.model_paths,
+            coin=self.coin,
+            timeframe=self.timeframe,
+            output_dir=self.output_dir,
+            lookahead_periods=self.signal_lookahead_periods,
         )
     
     def _get_trainer(self, model_type: MODEL_TYPES):
@@ -132,30 +177,40 @@ class AnalysisManager:
                 data_path=self.processed_path,
                 model_dir=self.model_dir,
                 train_ratio=self.train_ratio,
+                timeframe=self.timeframe,
+                lookahead_periods=self.signal_lookahead_periods,
             )
         elif model_type == "logistic":
             return LogisticTrainer(
                 data_path=self.processed_path,
                 model_dir=self.model_dir,
                 train_ratio=self.train_ratio,
+                timeframe=self.timeframe,
+                lookahead_periods=self.signal_lookahead_periods,
             )
         elif model_type == "svm":
             return SVMTrainer(
                 data_path=self.processed_path,
                 model_dir=self.model_dir,
                 train_ratio=self.train_ratio,
+                timeframe=self.timeframe,
+                lookahead_periods=self.signal_lookahead_periods,
             )
         elif model_type == "random_forest":
             return RandomForestTrainer(
                 data_path=self.processed_path,
                 model_dir=self.model_dir,
                 train_ratio=self.train_ratio,
+                timeframe=self.timeframe,
+                lookahead_periods=self.signal_lookahead_periods,
             )
         elif model_type == "lstm":
             return LSTMTrainer(
                 data_path=self.processed_path,
                 model_dir=self.model_dir,
                 train_ratio=self.train_ratio,
+                timeframe=self.timeframe,
+                lookahead_periods=self.signal_lookahead_periods,
             )
         else:
             raise ValueError(
@@ -170,33 +225,34 @@ class AnalysisManager:
         Args:
             skip_if_exists: 如果中间文件已存在是否跳过
         """
-        if skip_if_exists and self.intermediate_path.exists():
-            print(f"[AnalysisManager] Intermediate file already exists: {self.intermediate_path}")
-            print("[AnalysisManager] Skipping feature generation step.")
-            return
-        
         print("=" * 60)
         print("[AnalysisManager] Step 1: Feature Generation")
         print("=" * 60)
-        self.feature_generator.generate_features()
+        self.feature_generator.generate_features(skip_if_exists=skip_if_exists)
         print("[AnalysisManager] Feature generation completed.\n")
     
-    def run_signal_generation(self, skip_if_exists: bool = True):
+    def run_signal_generation(
+        self,
+        skip_if_exists: bool = True,
+        lookahead_periods: Optional[int] = None,
+    ):
         """
         执行信号生成步骤
         
         Args:
             skip_if_exists: 如果处理后文件已存在是否跳过
+            lookahead_periods: 向前看的K线周期数，如果为None则使用初始化时的值
         """
-        if skip_if_exists and self.processed_path.exists():
-            print(f"[AnalysisManager] Processed file already exists: {self.processed_path}")
-            print("[AnalysisManager] Skipping signal generation step.")
-            return
+        # 如果提供了新的lookahead_periods，更新signal_generator
+        if lookahead_periods is not None:
+            self.signal_generator.lookahead_periods = lookahead_periods
+            print(f"[AnalysisManager] Using lookahead_periods: {lookahead_periods}")
         
         print("=" * 60)
         print("[AnalysisManager] Step 2: Signal Generation")
+        print(f"[AnalysisManager] Lookahead Periods: {self.signal_generator.lookahead_periods}")
         print("=" * 60)
-        self.signal_generator.generate_signal()
+        self.signal_generator.generate_signal(skip_if_exists=skip_if_exists)
         print("[AnalysisManager] Signal generation completed.\n")
     
     def run_model_training(
@@ -212,12 +268,13 @@ class AnalysisManager:
             skip_if_exists: 如果模型文件已存在是否跳过
         """
         # 获取模型保存路径
+        # 模型文件名格式：{timeframe}_p{lookahead_periods}_{model}.pkl
         model_file_map = {
-            "lightgbm": "1h_lightgbm.pkl",
-            "logistic": "1h_logistic.pkl",
-            "svm": "1h_svm.pkl",
-            "random_forest": "1h_random_forest.pkl",
-            "lstm": "1h_lstm.pkl",
+            "lightgbm": f"{self.timeframe}_p{self.signal_lookahead_periods}_lightgbm.pkl",
+            "logistic": f"{self.timeframe}_p{self.signal_lookahead_periods}_logistic.pkl",
+            "svm": f"{self.timeframe}_p{self.signal_lookahead_periods}_svm.pkl",
+            "random_forest": f"{self.timeframe}_p{self.signal_lookahead_periods}_random_forest.pkl",
+            "lstm": f"{self.timeframe}_p{self.signal_lookahead_periods}_lstm.pkl",
         }
         model_path = self.model_dir / model_file_map[model_type.lower()]
         
@@ -256,6 +313,7 @@ class AnalysisManager:
         skip_signal_gen: bool = True,
         skip_training: bool = True,
         run_backtest: bool = True,
+        lookahead_periods: int = 1,
     ):
         """
         执行完整的分析流程
@@ -266,22 +324,27 @@ class AnalysisManager:
             skip_signal_gen: 如果处理后文件已存在是否跳过信号生成
             skip_training: 如果模型文件已存在是否跳过训练
             run_backtest: 是否执行回测
+            lookahead_periods: 信号生成时向前看的K线周期数，如果为None则使用初始化时的值
         """
         print("\n" + "=" * 60)
         print("Analysis Pipeline Started")
         print("=" * 60)
+        print(f"Coin: {self.coin.upper()}")
+        print(f"Timeframe: {self.timeframe}")
         print(f"Model Type: {model_type.upper()}")
         print(f"Raw Data: {self.raw_data_path}")
         print(f"Intermediate: {self.intermediate_path}")
         print(f"Processed: {self.processed_path}")
         print(f"Model Dir: {self.model_dir}")
+        if lookahead_periods != 1:
+            print(f"Lookahead Periods: {lookahead_periods}")
         print("=" * 60 + "\n")
         
         # Step 1: 特征生成
         self.run_feature_generation(skip_if_exists=skip_feature_gen)
         
         # Step 2: 信号生成
-        self.run_signal_generation(skip_if_exists=skip_signal_gen)
+        self.run_signal_generation(skip_if_exists=skip_signal_gen, lookahead_periods=lookahead_periods)
         
         # Step 3: 模型训练
         self.run_model_training(model_type, skip_if_exists=skip_training)

@@ -15,6 +15,7 @@ class SignalGenerator:
         out_path: Path = None,
         threshold: float = 0.001,
         delta: float = 0.0004,
+        lookahead_periods: int = 1,
     ):
         """
         初始化信号生成器
@@ -23,23 +24,30 @@ class SignalGenerator:
             raw_path: 输入特征数据路径
             out_dir: 输出目录
             out_path: 输出文件路径，如果为None则使用默认路径
-            threshold: 主阈值，未来一根K线相对涨跌幅
+            threshold: 主阈值，未来K线相对涨跌幅
             delta: 去噪安全带，贴着阈值的一小圈不要（只用于训练集过滤）
+            lookahead_periods: 向前看的K线周期数，默认为1（下一根K线），传入5则比较第5根K线
         """
         self.raw_path = raw_path
         self.out_dir = out_dir
-        if out_path is None:
-            self.out_path = out_dir / "btc_1h_features_signal.csv"
-        else:
-            self.out_path = out_path
         self.threshold = threshold
         self.delta = delta
+        self.lookahead_periods = lookahead_periods
+        
+        if out_path is None:
+            # 默认文件名格式：{coin}_{timeframe}_p{lookahead_periods}_features_signal.csv
+            # 从raw_path推断coin和timeframe（如果可能），否则使用默认值
+            # 这里简化处理，使用默认值
+            self.out_path = out_dir / f"btc_1h_p{lookahead_periods}_features_signal.csv"
+        else:
+            self.out_path = out_path
 
     def make_signal(self, df: pd.DataFrame,
                     threshold: float = None,
-                    delta: float = None) -> pd.DataFrame:
+                    delta: float = None,
+                    lookahead_periods: int = None) -> pd.DataFrame:
         """
-        基于"下一根K线的 close"生成三分类 signal：
+        基于未来K线的 close 生成三分类 signal：
         - ret_next >=  threshold         -> signal =  1
         - ret_next <= -threshold         -> signal = -1
         - 其他                            -> signal =  0
@@ -51,16 +59,18 @@ class SignalGenerator:
         - 上面三种情况 is_strong = 1，其余 is_strong = 0
 
         注意：这里 **不删任何行**，只增加列：
-          - ret_next_1h
+          - ret_next_1h (或 ret_next_Nh，N为lookahead_periods)
           - signal
           - is_strong
 
-        最后一行由于没有 next_close，会被删掉一行（NaN）。
+        最后几行由于没有 future_close，会被删掉（NaN）。
         """
         if threshold is None:
             threshold = self.threshold
         if delta is None:
             delta = self.delta
+        if lookahead_periods is None:
+            lookahead_periods = self.lookahead_periods
 
         # 1. 按时间排序
         if "datetime" in df.columns:
@@ -69,9 +79,9 @@ class SignalGenerator:
         else:
             raise ValueError("Input df must contain 'datetime' column.")
 
-        # 2. 下一根K线的收盘价 & 未来1小时收益
-        df["next_close"] = df["close"].shift(-1)
-        df["ret_next_1h"] = df["next_close"] / df["close"] - 1
+        # 2. 未来K线的收盘价 & 未来收益
+        df["future_close"] = df["close"].shift(-lookahead_periods)
+        df["ret_next_1h"] = df["future_close"] / df["close"] - 1
 
         # 3. 三分类 signal（不去噪）
         ret_next = df["ret_next_1h"]
@@ -87,26 +97,36 @@ class SignalGenerator:
         df["is_strong"] = 0
         df.loc[strong_up | strong_down | strong_flat, "is_strong"] = 1
 
-        # 5. 丢掉没有 next_close 的最后一行
-        df = df.dropna(subset=["next_close", "ret_next_1h"]).reset_index(drop=True)
+        # 5. 丢掉没有 future_close 的最后几行
+        df = df.dropna(subset=["future_close", "ret_next_1h"]).reset_index(drop=True)
 
-        # 6. 不再需要 next_close 这列
-        df = df.drop(columns=["next_close"])
+        # 6. 不再需要 future_close 这列
+        df = df.drop(columns=["future_close"])
 
         return df
 
-    def generate_signal(self):
+    def generate_signal(self, skip_if_exists: bool = True):
         """
         从特征数据生成信号并保存到文件
+        
+        Args:
+            skip_if_exists: 如果输出文件已存在是否跳过
         """
+        # 检查输出文件是否已存在
+        if skip_if_exists and self.out_path.exists():
+            print(f"[SignalGenerator] Output file already exists: {self.out_path}")
+            print("[SignalGenerator] Skipping signal generation.")
+            return
+        
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"[make_signal] Reading feature data from {self.raw_path} ...")
         df = pd.read_csv(self.raw_path)
 
         print("[make_signal] input columns:", df.columns.tolist())
+        print(f"[make_signal] lookahead_periods: {self.lookahead_periods}")
 
-        df = self.make_signal(df, self.threshold, self.delta)
+        df = self.make_signal(df, self.threshold, self.delta, self.lookahead_periods)
 
         print(f"[make_signal] Save data with signal to {self.out_path} ...")
         df.to_csv(self.out_path, index=False)
