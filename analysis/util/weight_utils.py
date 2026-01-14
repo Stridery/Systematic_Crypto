@@ -5,7 +5,7 @@
 import numpy as np
 
 
-def normalize_weights_robust(price_changes, min_weight=0.1, max_weight=10.0):
+def normalize_weights_robust(price_changes, min_weight=0.1, max_weight=10.0, log_range=1000):
     """
     稳健的权重归一化方法（方法5）
     1. 使用分位数避免异常值
@@ -33,7 +33,7 @@ def normalize_weights_robust(price_changes, min_weight=0.1, max_weight=10.0):
     clipped = np.clip(abs_changes, lower, upper)
     
     # 对数变换（放大差异）
-    log_changes = np.log1p(clipped * 1000)  # 乘以1000放大
+    log_changes = np.log1p(clipped * log_range)  # 乘以1000放大
     
     # 线性缩放到目标范围
     if log_changes.max() == log_changes.min():

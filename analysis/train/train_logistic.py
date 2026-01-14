@@ -24,6 +24,7 @@ class LogisticTrainer:
         train_ratio: float = 0.8,
         timeframe: str = "1h",
         lookahead_periods: int = 1,
+        log_range: int = 1000
     ):
         """
         初始化训练器
@@ -60,7 +61,7 @@ class LogisticTrainer:
             raise ValueError(f"Column '{RET_NEXT_COL}' not found in data. Please regenerate signal with updated make_signal.py")
         
         ret_next_all = df[RET_NEXT_COL].values
-        weights_all = normalize_weights_robust(ret_next_all, min_weight=0.1, max_weight=10.0)
+        weights_all = normalize_weights_robust(ret_next_all, min_weight=0.1, max_weight=10.0, log_range=self.log_range)
         print(f"[train_logistic] Weight stats: min={weights_all.min():.4f}, max={weights_all.max():.4f}, mean={weights_all.mean():.4f}")
 
         # 目标列

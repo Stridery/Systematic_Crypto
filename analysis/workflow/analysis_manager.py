@@ -54,6 +54,8 @@ class AnalysisManager:
         val_path: Optional[Path] = None,
         model_paths: Optional[dict] = None,
         output_dir: Optional[Path] = None,
+
+        log_range: int = 1000
     ):
         """
         初始化分析管理器
